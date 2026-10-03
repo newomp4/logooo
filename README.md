@@ -15,10 +15,11 @@ Either way the output is a single vector path.
 
 | Style | What it makes |
 | --- | --- |
-| Soft | Rounded, slightly irregular shapes: lobed curves, melted balls, mirrored "characters", lopsided dumbbells |
-| Stroke | Monoline strokes with round caps and filleted joins: gooey asterisks, slanted twins, chasing arcs, splats |
-| Sector | A ring or polygon cut into radial pieces, optionally twisted, hooked or split by a starburst |
+| Soft | Rounded, slightly irregular shapes: lobed curves, melted balls, mirrored characters with eyes, lopsided dumbbells |
+| Stroke | Monoline strokes with round caps: bent slant pairs, gooey asterisks, chasing arcs, turbines, splats |
+| Sector | A ring or polygon cut into pieces: curved-cut apertures, hooked pinwheels, twisted kites around a starburst |
 | Petal | Almond leaves or teardrops fanned around a center |
+| Glyph | A blocky figure: a wide slab, splayed legs and a head (tilted in asymmetric mode) |
 | Spoke | Asterisks and suns from rounded or tapered bars, or flat bars trimmed by a circle |
 | Badge | Rounded stars and seals, plain or with an opening |
 | Arch | Overlapping ovals whose overlaps cancel, split into two halves |
@@ -48,7 +49,7 @@ Before a mark is shown it has to pass two checks, or it's rerolled:
 
 ### Fewer repeats
 
-Every mark gets a 32×32 silhouette fingerprint. A new mark that overlaps one of your last 40 by 80% or more is swapped for a fresher one, and styles you've just seen are picked less often.
+Every mark gets a 32×32 silhouette fingerprint. A new mark that overlaps one of your last 40 by 80% or more is swapped for a fresher one, and styles you've just seen are picked less often. Traced outlines are refitted with as few curves as the shape needs, so exported SVGs stay clean.
 
 ## Use
 
@@ -61,7 +62,9 @@ npm run dev
 | --- | --- |
 | `space` / `n` | New mark |
 | `←` `→` | Browse the open tab (History or Saved) |
+| `v` | Find 8 variations of the current mark |
 | `f` | Save / unsave the current mark |
+| `x` | Not for me: hide this mark and anything that looks like it |
 | `c` | Copy SVG |
 | `p` | Copy PNG (1024px, transparent) |
 | `l` | Copy a link to the mark |
@@ -70,7 +73,8 @@ npm run dev
 - **Ink** sets the export colour (black or white).
 - **History** keeps the last 240 marks; **Saved** keeps the ones you star. Both live in localStorage.
 - **Links:** the URL hash holds the style and seed, so a link like `/#petal.k3j9x2` always rebuilds the same mark (`.x` on the end means asymmetric marks were allowed).
-- **Previews:** inside the main card the mark is shown as light, dark and flat-colour app icons, and at 32px and 16px.
+- **Previews:** inside the main card the mark is shown as light, dark and flat-colour app icons, and at 32px and 16px. Click an icon to put the big mark on that background.
+- **Hidden:** marks you hide (✕) are remembered by silhouette; anything 72% alike or more is skipped from then on. "Show again" resets it.
 
 ## Layout
 

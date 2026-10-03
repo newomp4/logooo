@@ -137,10 +137,70 @@ export function polar(r, n, harmonics, perSector = 8) {
   return path;
 }
 
+// Fits a dense closed polyline with a few smooth curves. paper's simplify()
+// distorts closed loops around their seam, so the loop is fitted as open
+// chunks and the joints are made tangent again.
+function fitLoop(raw, tolerance) {
+  const length = raw.length;
+  const m = Math.max(24, Math.round(length / 0.8));
+  const pts = Array.from({ length: m }, (_, i) => raw.getPointAt((length * i) / m));
+  // how sharply the outline turns at each sample (smoothed a little)
+  const turn = pts.map((p, i) => {
+    const a = p.subtract(pts[(i - 1 + m) % m]);
+    const b = pts[(i + 1) % m].subtract(p);
+    return Math.abs(a.getDirectedAngle(b));
+  });
+  const bend = turn.map((_, i) => turn[(i - 2 + m) % m] + turn[(i - 1 + m) % m] + turn[i] + turn[(i + 1) % m] + turn[(i + 2) % m]);
+
+  // seams go in the flattest spot near each even split, so tangents there are reliable
+  const chunks = Math.max(4, Math.min(16, Math.round(length / 12)));
+  const window = Math.max(1, Math.floor(m / chunks / 3));
+  const seams = [];
+  for (let c = 0; c < chunks; c++) {
+    const target = Math.round((m * c) / chunks);
+    let best = target;
+    for (let d = -window; d <= window; d++) {
+      const i = (target + d + m) % m;
+      if (bend[i] < bend[best % m]) best = i;
+    }
+    seams.push(((best % m) + m) % m);
+  }
+  seams.sort((a, b) => a - b);
+
+  const segments = [];
+  for (let c = 0; c < seams.length; c++) {
+    const from = seams[c];
+    const to = c + 1 < seams.length ? seams[c + 1] : seams[0] + m;
+    if (to - from < 2) continue;
+    const piece = new Path({ segments: Array.from({ length: to - from + 1 }, (_, i) => pts[(from + i) % m]) });
+    piece.simplify(tolerance);
+    piece.segments.forEach((seg, i) => {
+      if (i === 0 && segments.length) {
+        const prev = segments.pop();
+        segments.push(new Segment(seg.point, prev.handleIn, seg.handleOut));
+      } else {
+        segments.push(new Segment(seg.point, seg.handleIn, seg.handleOut));
+      }
+    });
+  }
+  const last = segments.pop();
+  segments[0] = new Segment(segments[0].point, last.handleIn, segments[0].handleOut);
+  // line the handles up at the seams so they don't kink
+  for (const seg of segments) {
+    const a = seg.handleIn;
+    const b = seg.handleOut;
+    if (a.isZero() || b.isZero()) continue;
+    const dir = b.normalize().subtract(a.normalize()).normalize();
+    seg.handleIn = dir.multiply(-a.length);
+    seg.handleOut = dir.multiply(b.length);
+  }
+  return new Path({ segments, closed: true });
+}
+
 // Contours of field(x, y) = level over [-half, half]², traced with marching
 // squares and fitted with smooth curves. The field must fall below `level`
 // at the edges so every contour closes.
-export function isoContour(field, half, res = 140, level = 1, spacing = 1.6) {
+export function isoContour(field, half, res = 140, level = 1, tolerance = 0.05) {
   const n = res + 1;
   const step = (2 * half) / res;
   const v = new Float64Array(n * n);
@@ -212,16 +272,7 @@ export function isoContour(field, half, res = 140, level = 1, spacing = 1.6) {
       cur = next;
     }
     if (loop.length < 8) continue;
-    const raw = new Path({ segments: loop.map(point), closed: true });
-    // even resampling + catmull-rom stays true to the contour; paper's
-    // simplify() distorts closed loops around their seam
-    const count = Math.max(16, Math.min(160, Math.round(raw.length / spacing)));
-    const path = new Path({
-      segments: Array.from({ length: count }, (_, k) => raw.getPointAt((raw.length * k) / count)),
-      closed: true,
-    });
-    path.smooth({ type: 'catmull-rom', factor: 0.5 });
-    paths.push(path);
+    paths.push(fitLoop(new Path({ segments: loop.map(point), closed: true }), tolerance));
   }
   return paths.length ? new CompoundPath({ children: paths }) : null;
 }
@@ -483,7 +534,7 @@ const SIZE = 100;
 // Boolean ops occasionally drop or mangle a piece; a mark that no longer
 // matches its own symmetry is thrown away. `symmetry` is like 'D4' or 'C2',
 // `axis` tilts the mirror line (degrees from vertical).
-function isSymmetric(shape, { label, axis = 0 }) {
+function isSymmetric(shape, { label, axis = 0 }, tolerance = 0.01) {
   const [, kind, order] = /^([CD])(\d+)$/.exec(label) ?? [];
   if (!kind) return true;
   const c = shape.bounds.center;
@@ -505,7 +556,7 @@ function isSymmetric(shape, { label, axis = 0 }) {
       }
     }
   }
-  return bad / total < 0.01;
+  return bad / total < tolerance;
 }
 
 function fit(item) {
@@ -518,7 +569,18 @@ function fit(item) {
 // with slivers or an unbalanced amount of ink.
 export function finalize(
   item,
-  { minFill = 0.16, maxFill = 0.86, minFeature = 1.15, minPart = 30, minNodes = 5, maxDetail = 0.2, tips = 1, freePieces = 5, balance } = {},
+  {
+    minFill = 0.16,
+    maxFill = 0.86,
+    minFeature = 1.15,
+    minPart = 30,
+    minNodes = 5,
+    maxDetail = 0.2,
+    tips = 1,
+    freePieces = 5,
+    balance,
+    symTolerance = 0.01,
+  } = {},
   symmetry,
 ) {
   if (!item || item.isEmpty()) return null;
@@ -546,7 +608,7 @@ export function finalize(
     const area = Math.abs(child.area);
     if (area < minPart || (2 * area) / child.length < minFeature) return null;
   }
-  if (symmetry && !isSymmetric(shape, symmetry)) return null;
+  if (symmetry && !isSymmetric(shape, symmetry, symTolerance)) return null;
 
   const { width, height } = shape.bounds;
   const area = Math.abs(shape.area);

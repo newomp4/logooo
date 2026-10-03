@@ -6,13 +6,18 @@ import { tintFor } from './palette.js';
 const STORAGE_KEY = 'logooo:v1';
 const MAX_HISTORY = 240;
 const MAX_SAVED = 500;
+const MAX_HIDDEN = 300;
 // a new mark is rerolled if it overlaps one of the last RECENT this much
 const RECENT = 40;
 const TOO_ALIKE = 0.8;
+// anything this close to a hidden mark never shows up again
+const HIDDEN_ALIKE = 0.72;
+const SIMILAR_COUNT = 8;
+const STAGE_BGS = ['dark', 'light', 'tint'];
 
 const $ = (sel) => document.querySelector(sel);
 const tiles = [$('#canvas'), ...document.querySelectorAll('[data-tile]')];
-const tintTile = $('.icon--tint');
+const stage = $('#stage');
 const listEl = $('#list');
 
 // ------------------------------------------------------------------ state
@@ -29,18 +34,22 @@ const stored = load();
 const state = {
   history: Array.isArray(stored.history) ? stored.history : [],
   saved: Array.isArray(stored.saved) ? stored.saved : [],
+  hidden: Array.isArray(stored.hidden) ? stored.hidden : [],
+  similar: [],
+  findingSimilar: false,
   view: 'history',
   currentId: null,
   mode: stored.mode === 'all' || FAMILY_NAMES.includes(stored.mode) ? stored.mode : 'all',
   ink: INKS[stored.ink] ? stored.ink : 'black',
   strict: stored.strict !== false,
+  stageBg: STAGE_BGS.includes(stored.stageBg) ? stored.stageBg : 'dark',
 };
 if (state.strict && FAMILY_INFO[state.mode]?.loose) state.mode = 'all';
 
 function persist() {
   try {
-    const { history, saved, mode, ink, strict } = state;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, saved, mode, ink, strict }));
+    const { history, saved, hidden, mode, ink, strict, stageBg } = state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, saved, hidden, mode, ink, strict, stageBg }));
   } catch {
     // storage full or blocked; marks just won't survive a reload
   }
@@ -48,7 +57,8 @@ function persist() {
 
 // ids double as URL hashes: family.seed, plus .x when asymmetric marks were allowed
 const idOf = (entry) => (entry.mode === 'all' ? entry.seed : `${entry.mode}.${entry.seed}${entry.loose ? '.x' : ''}`);
-const find = (id) => state.history.find((e) => idOf(e) === id) ?? state.saved.find((e) => idOf(e) === id);
+const lists = () => [state.history, state.saved, state.similar];
+const find = (id) => lists().flat().find((e) => idOf(e) === id);
 const current = () => (state.currentId ? find(state.currentId) : undefined);
 const visible = () => state[state.view];
 const isSaved = (entry) => state.saved.some((e) => idOf(e) === idOf(entry));
@@ -60,6 +70,7 @@ function build(seed, mode, loose = false) {
 }
 
 const sigOf = (entry) => (entry.sig ??= signatureOf(entry.d));
+const isHidden = (sig) => state.hidden.some((h) => likeness(h, sig) >= HIDDEN_ALIKE);
 
 // ---------------------------------------------------------------- render
 
@@ -82,8 +93,8 @@ function renderStage(animate) {
   });
 
   const tint = tintFor(entry.seed);
-  tintTile.style.setProperty('--tint-bg', tint.bg);
-  tintTile.style.setProperty('--tint-fg', tint.fg);
+  stage.style.setProperty('--tint-bg', tint.bg);
+  stage.style.setProperty('--tint-fg', tint.fg);
 
   $('#info').innerHTML = `<b>${entry.family}</b> · ${entry.symmetry} · ${entry.seed}`;
   const star = $('#save');
@@ -100,6 +111,13 @@ function renderStage(animate) {
   markCurrent();
 }
 
+function renderStageBg() {
+  stage.dataset.bg = state.stageBg;
+  for (const btn of document.querySelectorAll('.previews [data-bg]')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.bg === state.stageBg));
+  }
+}
+
 function markCurrent() {
   for (const btn of listEl.querySelectorAll('.thumb')) {
     btn.setAttribute('aria-current', String(btn.dataset.id === state.currentId));
@@ -112,16 +130,30 @@ function thumbHtml(entry) {
   return `<li><button class="thumb${saved}" type="button" data-id="${id}" aria-label="${entry.family} ${entry.seed}">${markSvg(entry)}</button></li>`;
 }
 
+const EMPTY = {
+  history: 'Nothing here yet. Press <kbd>space</kbd> for a mark.',
+  saved: 'Nothing saved yet. Press <kbd>f</kbd> or the star to keep a mark.',
+  similar: 'Finding marks like this one…',
+};
+
 function renderList() {
   const list = visible();
   listEl.innerHTML = list.map(thumbHtml).join('');
-  $('#empty').hidden = list.length > 0;
+  const empty = $('#empty');
+  empty.hidden = list.length > 0;
+  empty.innerHTML = state.view === 'similar' && !state.findingSimilar ? 'Nothing close enough turned up. Try again.' : EMPTY[state.view];
   $('#clear').hidden = state.view !== 'history';
   $('#n-history').textContent = state.history.length;
   $('#n-saved').textContent = state.saved.length;
+  $('#n-similar').textContent = state.similar.length || '';
+  const similarTab = document.querySelector('.tab[data-view="similar"]');
+  similarTab.hidden = !state.similar.length && !state.findingSimilar && state.view !== 'similar';
   for (const tab of document.querySelectorAll('.tab')) {
     tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
   }
+  const unhide = $('#unhide');
+  unhide.hidden = !state.hidden.length;
+  unhide.textContent = `Hidden ${state.hidden.length} · Show again`;
   markCurrent();
 }
 
@@ -136,10 +168,20 @@ function renderChips(el, items, pressed, attr) {
 
 const titleCase = (s) => s[0].toUpperCase() + s.slice(1);
 
+// the first few styles are the main ones; the rest fold behind "More"
+const FEATURED = 9;
+let showAllStyles = false;
+
 function renderFamilies() {
   const names = FAMILY_NAMES.filter((name) => !state.strict || !FAMILY_INFO[name].loose);
-  const items = ['all', ...names].map((name) => ({ value: name, label: titleCase(name) }));
+  const folded = !showAllStyles && names.indexOf(state.mode) < FEATURED;
+  const shown = folded ? names.slice(0, FEATURED) : names;
+  const items = ['all', ...shown].map((name) => ({ value: name, label: titleCase(name) }));
   renderChips($('#families'), items, state.mode, 'data-mode');
+  if (names.length > FEATURED) {
+    const label = folded ? `More (${names.length - FEATURED})` : 'Less';
+    $('#families').insertAdjacentHTML('beforeend', `<button class="chip chip--more" type="button" data-more>${label}</button>`);
+  }
 }
 
 function renderStrict() {
@@ -169,32 +211,76 @@ function pickFamily() {
   return pool[pool.length - 1][0];
 }
 
+function show(entry) {
+  state.history = [entry, ...state.history.filter((e) => idOf(e) !== idOf(entry))].slice(0, MAX_HISTORY);
+  state.currentId = idOf(entry);
+  persist();
+}
+
 function create() {
   // keep the candidate least like anything recent; usually the first one is fine
   const recent = state.history.slice(0, RECENT).map(sigOf);
   let best = null;
-  for (let attempt = 0; attempt < 12; attempt++) {
+  for (let attempt = 0; attempt < 16; attempt++) {
     const family = state.mode === 'all' ? pickFamily() : state.mode;
     const candidate = build(randomSeed(), family, !state.strict);
-    if (!candidate) continue;
+    if (!candidate || isHidden(candidate.sig)) continue;
     const closest = recent.reduce((max, sig) => Math.max(max, likeness(sig, candidate.sig)), 0);
     if (!best || closest < best.closest) best = { candidate, closest };
     if (closest < TOO_ALIKE) break;
   }
-  if (best) {
-    const entry = { ...best.candidate, mode: best.candidate.family };
-    state.history = [entry, ...state.history.filter((e) => idOf(e) !== idOf(entry))].slice(0, MAX_HISTORY);
-    state.currentId = idOf(entry);
-    state.view = 'history';
-    persist();
-    renderList();
-    listEl.querySelector('li')?.classList.add('rise');
-    renderStage(true);
+  if (!best) return;
+  show({ ...best.candidate, mode: best.candidate.family });
+  state.view = 'history';
+  renderList();
+  listEl.querySelector('li')?.classList.add('rise');
+  renderStage(true);
+}
+
+// Variations of the current mark: same style, closest silhouettes first.
+async function findSimilar() {
+  const base = current();
+  if (!base || state.findingSimilar) return;
+  const baseSig = sigOf(base);
+  const button = $('#similar');
+  state.findingSimilar = true;
+  state.similar = [];
+  state.view = 'similar';
+  button.setAttribute('aria-busy', 'true');
+  renderList();
+
+  const pool = [];
+  for (let i = 0; i < 40; i++) {
+    const candidate = build(randomSeed(), base.family, base.loose ?? !state.strict);
+    if (candidate && !isHidden(candidate.sig)) {
+      const near = likeness(baseSig, candidate.sig);
+      if (near < 0.94) pool.push({ candidate, near });
+    }
+    // let the page breathe between batches
+    if (i % 4 === 3) await new Promise(requestAnimationFrame);
   }
+  pool.sort((a, b) => b.near - a.near);
+  const picks = [];
+  for (const { candidate } of pool) {
+    if (picks.length === SIMILAR_COUNT) break;
+    if (picks.every((p) => likeness(p.sig, candidate.sig) < 0.9)) picks.push({ ...candidate, mode: candidate.family });
+  }
+
+  state.similar = picks;
+  state.findingSimilar = false;
+  button.removeAttribute('aria-busy');
+  if (state.view === 'similar') renderList();
 }
 
 function select(id) {
-  if (!id || id === state.currentId || !find(id)) return;
+  if (!id || id === state.currentId) return;
+  const entry = find(id);
+  if (!entry) return;
+  // picking a variation makes it part of history, so it's kept and linkable
+  if (!state.history.some((e) => idOf(e) === id)) {
+    show(entry);
+    renderList();
+  }
   state.currentId = id;
   renderStage(true);
 }
@@ -223,11 +309,30 @@ function toggleSave() {
   announce(isSaved(entry) ? 'Saved' : 'Removed from saved');
 }
 
+// "Not for me": forget this mark and keep anything like it from coming back.
+function hide() {
+  const entry = current();
+  if (!entry) return;
+  const id = idOf(entry);
+  state.hidden = [sigOf(entry), ...state.hidden].slice(0, MAX_HIDDEN);
+  state.history = state.history.filter((e) => idOf(e) !== id);
+  state.similar = state.similar.filter((e) => idOf(e) !== id);
+  persist();
+  announce('Hidden. Marks like this won’t come back.');
+  create();
+}
+
 function setView(view) {
   if (view === state.view) return;
   state.view = view;
   renderList();
   renderStage(false);
+}
+
+function setStageBg(bg) {
+  state.stageBg = bg;
+  persist();
+  renderStageBg();
 }
 
 function announce(text) {
@@ -268,14 +373,46 @@ function download(kind) {
   if (entry) (kind === 'svg' ? saveSvg : savePng)(entry, INKS[state.ink], fileName(entry));
 }
 
+// Two-step buttons: the first press asks, the second within 2.5s does it.
+function confirmable(button, question, action) {
+  const label = button.textContent;
+  button.addEventListener('click', () => {
+    if (button.dataset.armed !== 'true') {
+      button.dataset.armed = 'true';
+      button.dataset.label = button.textContent;
+      button.textContent = question;
+      clearTimeout(button._timer);
+      button._timer = setTimeout(() => {
+        button.dataset.armed = 'false';
+        button.textContent = button.dataset.label || label;
+      }, 2500);
+      return;
+    }
+    clearTimeout(button._timer);
+    button.dataset.armed = 'false';
+    action();
+  });
+}
+
 // ---------------------------------------------------------------- events
 
 $('#new').addEventListener('click', create);
+$('#similar').addEventListener('click', findSimilar);
 $('#older').addEventListener('click', () => step(1));
 $('#newer').addEventListener('click', () => step(-1));
 $('#save').addEventListener('click', toggleSave);
+$('#hide').addEventListener('click', hide);
+
+for (const btn of document.querySelectorAll('.previews [data-bg]')) {
+  btn.addEventListener('click', () => setStageBg(btn.dataset.bg));
+}
 
 $('#families').addEventListener('click', (e) => {
+  if (e.target.closest('[data-more]')) {
+    showAllStyles = !showAllStyles;
+    renderFamilies();
+    return;
+  }
   const mode = e.target.closest('[data-mode]')?.dataset.mode;
   if (!mode) return;
   state.mode = mode;
@@ -314,26 +451,21 @@ for (const tab of document.querySelectorAll('.tab')) {
 
 listEl.addEventListener('click', (e) => select(e.target.closest('.thumb')?.dataset.id));
 
-const clearBtn = $('#clear');
-clearBtn.addEventListener('click', () => {
-  if (clearBtn.dataset.armed !== 'true') {
-    clearBtn.dataset.armed = 'true';
-    clearBtn.textContent = 'Clear history?';
-    clearTimeout(clearBtn._timer);
-    clearBtn._timer = setTimeout(() => {
-      clearBtn.dataset.armed = 'false';
-      clearBtn.textContent = 'Clear';
-    }, 2500);
-    return;
-  }
-  clearBtn.dataset.armed = 'false';
-  clearBtn.textContent = 'Clear';
+confirmable($('#clear'), 'Clear history?', () => {
   // saved marks stay; the one on screen stays too
   const entry = current();
   state.history = entry ? [entry] : [];
+  $('#clear').textContent = 'Clear';
   persist();
   renderList();
   renderStage(false);
+});
+
+confirmable($('#unhide'), 'Show hidden styles again?', () => {
+  state.hidden = [];
+  persist();
+  renderList();
+  announce('Hidden marks can show up again.');
 });
 
 document.addEventListener('keydown', (e) => {
@@ -345,7 +477,9 @@ document.addEventListener('keydown', (e) => {
     create();
   } else if (key === 'arrowleft') step(1);
   else if (key === 'arrowright') step(-1);
+  else if (key === 'v') findSimilar();
   else if (key === 'f') toggleSave();
+  else if (key === 'x') hide();
   else if (key === 'c') copy('svg');
   else if (key === 'p') copy('png');
   else if (key === 'l') copy('link');
@@ -366,15 +500,14 @@ function fromHash() {
   if (!seed || (mode !== 'all' && !FAMILY_NAMES.includes(mode))) return false;
   const entry = build(seed, mode, flag === 'x');
   if (!entry) return false;
-  state.history = [entry, ...state.history].slice(0, MAX_HISTORY);
-  state.currentId = idOf(entry);
-  persist();
+  show(entry);
   return true;
 }
 
 renderFamilies();
 renderInks();
 renderStrict();
+renderStageBg();
 if (fromHash() || state.history.length) {
   state.currentId ??= idOf(state.history[0]);
   renderList();

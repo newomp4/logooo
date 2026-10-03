@@ -59,6 +59,47 @@ export function arc(cx, cy, R, a0, a1, r) {
   };
 }
 
+// A stroke along a polyline [[x, y], ...] whose corners bend round arcs of
+// radius `bend` instead of turning sharply; r is half the stroke width.
+export function path(points, bend, r) {
+  const parts = [];
+  let start = points[0];
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1];
+    const [vx, vy] = points[i];
+    const [nx, ny] = points[i + 1];
+    const d1 = norm(px - vx, py - vy);
+    const d2 = norm(nx - vx, ny - vy);
+    const alpha = Math.acos(clamp(d1[0] * d2[0] + d1[1] * d2[1], -1, 1));
+    const t = Math.min(bend / Math.tan(alpha / 2), 0.45 * Math.hypot(px - vx, py - vy), 0.45 * Math.hypot(nx - vx, ny - vy));
+    const rad = t * Math.tan(alpha / 2);
+    const t1 = [vx + d1[0] * t, vy + d1[1] * t];
+    const t2 = [vx + d2[0] * t, vy + d2[1] * t];
+    parts.push(capsule(start[0], start[1], t1[0], t1[1], r));
+    if (rad > 1e-6 && alpha < Math.PI - 1e-3) {
+      const bis = norm(d1[0] + d2[0], d1[1] + d2[1]);
+      const h = rad / Math.sin(alpha / 2);
+      const c = [vx + bis[0] * h, vy + bis[1] * h];
+      let a0 = Math.atan2(t1[1] - c[1], t1[0] - c[0]);
+      let a1 = Math.atan2(t2[1] - c[1], t2[0] - c[0]);
+      let sweep = a1 - a0;
+      sweep = Math.atan2(Math.sin(sweep), Math.cos(sweep));
+      if (sweep < 0) [a0, a1] = [a1, a0 - sweep];
+      else a1 = a0 + sweep;
+      parts.push(arc(c[0], c[1], rad, a0, a1, r));
+    }
+    start = t2;
+  }
+  const end = points[points.length - 1];
+  parts.push(capsule(start[0], start[1], end[0], end[1], r));
+  return union(...parts);
+}
+
+function norm(x, y) {
+  const l = Math.hypot(x, y) || 1;
+  return [x / l, y / l];
+}
+
 // Exact distance to a closed polygon [[x, y], ...].
 export function polygon(pts) {
   return (x, y) => {
@@ -137,6 +178,9 @@ export function spin(f, n, k = 0) {
 export const mirrorX = (f) => (x, y) => f(Math.abs(x), y);
 
 // ---------------------------------------------------------------- tracing
+
+// Shapes built here are symmetric by construction; tracing adds a little noise.
+export const TRACED = { symTolerance: 0.025 };
 
 // Finds the shape's extent on a coarse grid, then traces it finely.
 export function trace(f, reach = 70) {

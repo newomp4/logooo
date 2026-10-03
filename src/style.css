@@ -136,6 +136,10 @@ kbd {
 /* -------------------------------------------------------------- stage */
 
 .stage {
+  --ink: var(--fg);
+  --dot: #252525;
+  --chrome: var(--meta);
+  --chrome-hover: #1e1e1e;
   display: grid;
   grid-template-rows: auto 1fr auto;
   margin-top: 32px;
@@ -144,6 +148,30 @@ kbd {
   border-radius: 14px;
   background: var(--surface);
   overflow: hidden;
+  transition: background-color 0.35s, border-color 0.35s;
+}
+
+.stage[data-bg='light'] {
+  --ink: #0a0a0a;
+  --dot: #dcdcdc;
+  --chrome: #8a8a8a;
+  --chrome-hover: #e4e4e4;
+  background: #f3f3f3;
+  border-color: #f3f3f3;
+}
+
+.stage[data-bg='tint'] {
+  --ink: var(--tint-fg);
+  --dot: rgb(255 255 255 / 0.14);
+  --chrome: color-mix(in srgb, var(--tint-fg) 60%, transparent);
+  --chrome-hover: rgb(0 0 0 / 0.08);
+  background: var(--tint-bg);
+  border-color: var(--tint-bg);
+}
+
+.stage[data-bg='light'] .info b,
+.stage[data-bg='tint'] .info b {
+  color: var(--ink);
 }
 
 .stage-top {
@@ -154,7 +182,7 @@ kbd {
   padding: 10px 10px 0 16px;
   font-size: var(--text-meta);
   letter-spacing: 0.01em;
-  color: var(--meta);
+  color: var(--chrome);
   font-variant-numeric: tabular-nums;
 }
 
@@ -163,7 +191,8 @@ kbd {
   display: grid;
   place-items: center;
   min-height: 0;
-  color: var(--fg);
+  color: var(--ink);
+  transition: color 0.35s;
 }
 
 /* dot grid on its own layer so the fade never touches the mark */
@@ -171,7 +200,7 @@ kbd {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(circle, #252525 1px, transparent 1.4px);
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.4px);
   background-size: 22px 22px;
   background-position: center;
   -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 40%, transparent 100%);
@@ -196,7 +225,7 @@ kbd {
   width: 1px;
   height: 28px;
   margin: 0 8px;
-  background: var(--line);
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
 }
 
 .info {
@@ -230,8 +259,8 @@ kbd {
 
 .icon-btn:hover:not(:disabled),
 .icon-btn:focus-visible {
-  color: var(--fg);
-  background: #1e1e1e;
+  color: var(--ink);
+  background: var(--chrome-hover);
 }
 
 .icon-btn:active:not(:disabled) {
@@ -239,7 +268,7 @@ kbd {
 }
 
 .icon-btn:disabled {
-  color: #333;
+  opacity: 0.3;
   cursor: default;
 }
 
@@ -274,6 +303,43 @@ kbd {
   margin-top: 14px;
 }
 
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.similar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  font-size: var(--text-body);
+  color: var(--fg-2);
+  transition: border-color 0.15s, color 0.15s, transform 0.16s;
+}
+
+.similar kbd {
+  font-size: var(--text-meta);
+  color: var(--faint);
+}
+
+.similar:hover {
+  border-color: var(--muted);
+  color: var(--fg);
+}
+
+.similar:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.similar[aria-busy='true'] {
+  color: var(--faint);
+  cursor: progress;
+}
+
 .new {
   display: inline-flex;
   align-items: center;
@@ -306,7 +372,7 @@ kbd {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  column-gap: 14px;
+  column-gap: 12px;
   row-gap: 4px;
 }
 
@@ -381,6 +447,17 @@ kbd {
   aspect-ratio: 1;
   border-radius: 23%;
   overflow: hidden;
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+  transition: outline-color 0.2s, transform 0.2s var(--spring);
+}
+
+.icon:hover {
+  transform: translateY(-1px);
+}
+
+.icon[aria-pressed='true'] {
+  outline-color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .icon .mark {
@@ -411,7 +488,7 @@ kbd {
   place-items: center;
   width: 32px;
   height: 32px;
-  color: var(--fg);
+  color: var(--ink);
 }
 
 .size--small {
@@ -505,6 +582,10 @@ kbd {
   background: #111;
 }
 
+.chip--more {
+  color: var(--faint);
+}
+
 .ink-dot {
   width: 9px;
   height: 9px;
@@ -546,6 +627,11 @@ kbd {
 .tab:hover,
 .tab[aria-selected='true'] {
   color: var(--fg);
+}
+
+.library-tools {
+  display: inline-flex;
+  gap: 14px;
 }
 
 .clear {
@@ -661,7 +747,8 @@ kbd {
 
 @media (hover: none) {
   .hints,
-  .new kbd {
+  .new kbd,
+  .similar kbd {
     display: none;
   }
 }

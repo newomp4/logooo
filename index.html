@@ -21,10 +21,13 @@
         <p class="lede rise" style="--d: 0.05s">Geometric logo marks, symmetric by default. Press <kbd>space</kbd> for another.</p>
       </header>
 
-      <section class="stage rise" style="--d: 0.1s" aria-label="Current mark">
+      <section class="stage rise" style="--d: 0.1s" aria-label="Current mark" id="stage" data-bg="dark">
         <div class="stage-top">
           <span class="info" id="info" aria-live="polite"></span>
           <span class="nav">
+            <button class="icon-btn" id="hide" type="button" aria-label="Hide marks like this" title="Not for me (x)">
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+            </button>
             <button class="icon-btn star" id="save" type="button" aria-pressed="false" aria-label="Save mark" title="Save (f)">
               <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 1.6l1.9 3.95 4.35.6-3.17 3.03.78 4.32L8 11.43 4.14 13.5l.78-4.32L1.75 6.15l4.35-.6z" /></svg>
             </button>
@@ -33,10 +36,10 @@
           </span>
         </div>
         <div class="canvas" id="canvas"></div>
-        <div class="previews" aria-label="As an app icon and at small sizes">
-          <div class="icon icon--light" data-tile title="Light icon"></div>
-          <div class="icon icon--dark" data-tile title="Dark icon"></div>
-          <div class="icon icon--tint" data-tile title="Colour icon"></div>
+        <div class="previews" aria-label="Backgrounds and small sizes">
+          <button class="icon icon--light" type="button" data-tile data-bg="light" aria-pressed="false" title="Show on light"></button>
+          <button class="icon icon--dark" type="button" data-tile data-bg="dark" aria-pressed="true" title="Show on dark"></button>
+          <button class="icon icon--tint" type="button" data-tile data-bg="tint" aria-pressed="false" title="Show on colour"></button>
           <span class="previews-divider" aria-hidden="true"></span>
           <span class="size" data-tile title="32px"></span>
           <span class="size size--small" data-tile title="16px"></span>
@@ -44,7 +47,10 @@
       </section>
 
       <div class="toolbar rise" style="--d: 0.15s">
-        <button class="new" id="new" type="button">New <kbd>space</kbd></button>
+        <span class="primary">
+          <button class="new" id="new" type="button">New <kbd>space</kbd></button>
+          <button class="similar" id="similar" type="button" title="Similar (v)">Similar</button>
+        </span>
         <div class="actions">
           <button class="action" type="button" data-copy="svg">
             <span class="swap"><span aria-hidden="false">Copy SVG</span><span aria-hidden="true">Copied</span></span>
@@ -85,15 +91,19 @@
           <div class="tabs" role="tablist">
             <button class="tab" type="button" role="tab" data-view="history">History <span id="n-history"></span></button>
             <button class="tab" type="button" role="tab" data-view="saved">Saved <span id="n-saved"></span></button>
+            <button class="tab" type="button" role="tab" data-view="similar" hidden>Similar <span id="n-similar"></span></button>
           </div>
-          <button class="clear" id="clear" type="button">Clear</button>
+          <span class="library-tools">
+            <button class="clear" id="unhide" type="button" hidden></button>
+            <button class="clear" id="clear" type="button">Clear</button>
+          </span>
         </div>
         <ul class="thumbs" id="list"></ul>
-        <p class="empty" id="empty" hidden>Nothing saved yet. Press <kbd>f</kbd> or the star to keep a mark.</p>
+        <p class="empty" id="empty" hidden></p>
       </section>
 
       <footer class="hints rise" style="--d: 0.4s">
-        <kbd>space</kbd> new <span>·</span> <kbd>←</kbd> <kbd>→</kbd> browse <span>·</span> <kbd>f</kbd> save <span>·</span> <kbd>c</kbd> copy svg <span>·</span> <kbd>p</kbd> copy png <span>·</span> <kbd>l</kbd> link
+        <kbd>space</kbd> new <span>·</span> <kbd>←</kbd> <kbd>→</kbd> browse <span>·</span> <kbd>v</kbd> similar <span>·</span> <kbd>f</kbd> save <span>·</span> <kbd>x</kbd> hide <span>·</span> <kbd>c</kbd> copy svg <span>·</span> <kbd>p</kbd> copy png <span>·</span> <kbd>l</kbd> link
       </footer>
       <p class="sr-only" id="status" aria-live="polite"></p>
     </div>
