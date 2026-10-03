@@ -82,8 +82,15 @@ export function roundCorners(item, radius, minAngle = 5) {
 function roundPath(source, radius, minAngle) {
   const path = source.clone({ insert: false });
   path.reduce?.({});
-  // drop specks of curve that booleans sometimes leave at intersections
-  for (const c of path.curves.slice()) if (c.length < 1e-3 && path.curves.length > 3) c.segment2.remove();
+  // booleans sometimes leave hair-thin edges where curves meet; a fillet can't
+  // grow past them, so they'd leave a sharp corner behind: merge them away
+  const tiny = Math.max(radius * 0.25, 0.02);
+  for (let pass = 0; pass < 3; pass++) {
+    for (const c of path.curves.slice()) {
+      if (path.curves.length <= 3) break;
+      if (c.length < tiny) c.segment2.remove();
+    }
+  }
   const curves = path.curves;
   const n = curves.length;
   if (n < 2) return path;

@@ -76,7 +76,9 @@ function motif(rng, family) {
   // twin discs make figure-8s, which came up far too often
   const steps = family === 'poly' || family === 'leaf' ? 0 : rng.weighted(family === 'round' ? [[0, 3], [1, 1]] : [[0, 3], [1, 2.4]]);
   for (let i = 0; i < steps; i++) {
-    const op = rng.weighted([['twin', 3], ['hole', 0.8]]);
+    // a hole only goes into a lone primitive, with room all round it: punched
+    // into a twin it lands near an edge and leaves odd notches
+    const op = i === 0 ? rng.weighted([['twin', 3], ['hole', 0.8]]) : 'twin';
     if (op === 'twin') {
       // an exact copy of the base, turned or not, sunk well into its edge
       const spot = edgePoint(item, rng);
@@ -88,10 +90,11 @@ function motif(rng, family) {
       add.translate(spot.p.add(spot.n.multiply(-reach * rng.float(0.35, 0.6))));
       item = unite(item, add);
     } else {
-      const hole = primitive(rng, size() * rng.float(0.45, 0.6), firstKind);
+      const hole = primitive(rng, size() * rng.float(0.4, 0.55), firstKind);
       hole.translate(item.bounds.center);
-      const corners = [hole.bounds.topLeft, hole.bounds.topRight, hole.bounds.bottomLeft, hole.bounds.bottomRight];
-      if (corners.every((pt) => item.contains(pt))) item = subtract(item, hole);
+      const inside = [hole.bounds.topLeft, hole.bounds.topRight, hole.bounds.bottomLeft, hole.bounds.bottomRight].every((pt) => item.contains(pt));
+      if (inside && clearance(hole, item) > size() * 0.12) item = subtract(item, hole);
+      break;
     }
   }
   return { item, straight, bent: false, family };
@@ -131,7 +134,7 @@ function arrange(rng, m, plan) {
   // always stand apart; pairs, mirrors and threes may merge
   const apart = n >= 4 && mode !== 'mirror';
   const spin0 = rng.float(0, 360);
-  let d = size * rng.float(apart ? 0.6 : 0.3, apart ? 1 : 0.85);
+  let d = size * rng.float(apart ? 0.6 : 0.3, apart ? 1 : 0.62);
   const build = () => {
     const piece = base.clone({ insert: false }).rotate(spin0, ORIGIN);
     piece.translate(new Point(d, 0));
@@ -197,5 +200,5 @@ export function form(rng, opts = {}) {
   // rounding scaled to the mark so corners never read as stray points
   const span = Math.max(arr.item.bounds.width, arr.item.bounds.height);
   const item = roundCorners(finish(rng, arr), span * rng.float(0.015, 0.04));
-  return { item, symmetry: 'auto', limits: { minAspect: 0.55, freePieces: 7, maxNodes: 75, maxFine: 0.012, maxSpikes: 2 } };
+  return { item, symmetry: 'auto', limits: { minAspect: 0.55, freePieces: 7, maxNodes: 75, maxFine: 0.012, maxSpikes: 2, smooth: true, maxGap: 0.16 } };
 }

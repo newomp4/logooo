@@ -537,6 +537,50 @@ export function spikes(shape) {
   return count;
 }
 
+// Corners that are still sharp: the outline turns more than ~50° within about
+// a unit of length (a proper fillet turns far more gently). Measured by
+// sampling, so a corner split across several hair-thin edges still counts.
+export function sharpCorners(shape) {
+  let count = 0;
+  for (const loop of shape.children ?? [shape]) {
+    const length = loop.length;
+    const n = Math.max(120, Math.round(length / 0.2));
+    const pts = Array.from({ length: n }, (_, i) => loop.getPointAt((length * i) / n));
+    const turn = pts.map((p, i) => p.subtract(pts[(i - 1 + n) % n]).getDirectedAngle(pts[(i + 1) % n].subtract(p)));
+    const w = Math.max(2, Math.round(0.6 / (length / n)));
+    let sum = 0;
+    for (let j = -w; j <= w; j++) sum += turn[(j + n) % n];
+    let inside = false;
+    for (let i = 0; i < n; i++) {
+      if (i) sum += turn[(i + w) % n] - turn[(i - w - 1 + n) % n];
+      const sharp = Math.abs(sum) > 50;
+      if (sharp && !inside) count++;
+      inside = sharp;
+    }
+  }
+  return count;
+}
+
+// How far the loneliest piece sits from its nearest neighbour, as a share of
+// the mark's size. Pieces that drift apart stop reading as one mark.
+export function widestGap(shape) {
+  const pieces = (shape.children ?? [shape]).filter((c) => c.area > 0);
+  if (pieces.length < 2) return 0;
+  const size = Math.max(shape.bounds.width, shape.bounds.height);
+  const sample = (p, n) => Array.from({ length: n }, (_, i) => p.getPointAt((p.length * i) / n));
+  const pts = pieces.map((p) => sample(p, 48));
+  let widest = 0;
+  for (let i = 0; i < pieces.length; i++) {
+    let nearest = Infinity;
+    for (let j = 0; j < pieces.length; j++) {
+      if (i === j) continue;
+      for (const a of pts[i]) for (const b of pts[j]) nearest = Math.min(nearest, a.getDistance(b));
+    }
+    widest = Math.max(widest, nearest);
+  }
+  return widest / size;
+}
+
 // Concave dents along the outer outline: many of them make a flower or cog.
 export function dents(shape) {
   let count = 0;

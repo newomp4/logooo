@@ -113,7 +113,8 @@ function zig(rng) {
 export function carve(rng, opts = {}) {
   const box = container(rng);
   const ops = rng.weighted([[1, 4], [2, 1]]);
-  const pool = [['slit', 3], ['channel', 2.5], ['bites', 0.6], ['hole', 2], ['zig', 1.8]];
+  // bent channels and rim bites read as accidents; slits, openings and S cuts don't
+  const pool = [['slit', 3], ['hole', 2], ['zig', 1.6]];
   const cutters = [];
   const used = new Set();
   for (let k = 0; k < ops; k++) {
@@ -128,7 +129,7 @@ export function carve(rng, opts = {}) {
     );
   }
   const item = roundCorners(subtract(box.item, ...cutters), U * rng.float(0.06, 0.18));
-  return { item, symmetry: AUTO, limits: { tips: 0.7, minAspect: 0.5 } };
+  return { item, symmetry: AUTO, limits: { tips: 0.7, minAspect: 0.5, smooth: true } };
 }
 
 // ------------------------------------------------------------------- pair
@@ -167,7 +168,7 @@ export function pair(rng) {
   const item = roundCorners(unite(piece, turned(piece)), fillet);
   // when the halves merge they can trap a stray hole; a pair should be solid
   if (!solidOnly(item)) return null;
-  return { item, symmetry: AUTO, limits: { minAspect: 0.55 } };
+  return { item, symmetry: AUTO, limits: { minAspect: 0.55, smooth: true } };
 }
 
 // ------------------------------------------------------------------ block

@@ -41,6 +41,8 @@ Before a mark is shown it has to pass two checks, or it's rerolled:
 - **Geometry:** no slivers, no specks, balanced ink coverage, intact symmetry (a failed boolean op breaks it), and not too flat. It also rejects things that read as accidents: a nest of convex shapes around one centre (a disc, a plain ring, a target), a plain blob with a nick out of it, a grid of plain boxes, two or three plain pieces, bare dots, and leftover boolean slivers.
 - **Never:** a plain plus or X, or a hooked cross in either direction. Every mark's silhouette is compared against those templates and rejected if it's close.
 - **Even:** no knobs, hooks or tails, meaning little protrusions off a bigger body, measured as the ink a 7%-wide opening removes. No more than two sharp spikes on procedural marks.
+- **Clean corners:** marks meant to be fully rounded can't keep a sharp corner. Hair-thin edges that booleans leave where curves meet are merged before filleting, so they can't pin a corner sharp.
+- **Close together:** if any piece sits further than about a fifth of the mark's size from its nearest neighbour, the mark is rejected.
 - **Legibility** (`src/gen/legibility.js`): the mark is rasterized at 64px, the way it would appear as an app icon, and scored on ink thinner than ~5% of its size, gaps narrower than that, specks, how many separate pieces and holes the eye would count, and small satellites floating away from the main body. Busy marks score high and get dropped.
 
 ### Fewer repeats

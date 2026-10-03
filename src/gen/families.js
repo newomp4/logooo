@@ -791,7 +791,7 @@ function stroke(rng, opts = {}) {
 // hooked pinwheels, plain wheels.
 
 function sector(rng) {
-  const style = rng.weighted([['kites', 3], ['hooks', 2], ['wheel', 0.8]]);
+  const style = rng.weighted([['kites', 3], ['hooks', 0.5], ['wheel', 0.8]]);
   // three hooked pieces read as jigsaw puzzle, so hooks start at four
   const n = style === 'kites' ? rng.weighted([[5, 3], [6, 2], [3, 1], [4, 0.4]]) : rng.weighted([[3, style === 'hooks' ? 0 : 1], [4, 1.4], [5, 2], [6, 2], [7, 0.8]]);
   const R = U * 2;
@@ -893,7 +893,7 @@ export const FAMILIES = {
   dash: { build: dash, weight: 5 },
   arch: { build: arch, weight: 4 },
   petal: { build: petal, weight: 4 },
-  spoke: { build: spoke, weight: 4 },
+  spoke: { build: spoke, weight: 1.5 },
   sector: { build: sector, weight: 1.5 },
   split: { build: split, weight: 3 },
   badge: { build: badge, weight: 2 },
