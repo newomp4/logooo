@@ -1,8 +1,9 @@
 // Reference blending. Each reference logo is written down as a recipe of
 // primitive shapes, in slots:
-//   piece      the shape being repeated (oval, slab, chamfered box, kite, ...)
-//   layout     how copies of it sit (ring, bars, 180° pair, row, quadrants)
-//              and whether they merge or cancel where they overlap
+//   piece      the shape being repeated (oval, slab, chamfered box, kite,
+//              chevron, arch, disc, ...)
+//   layout     how copies of it sit (ring, bars, 180° pair, mirror, row,
+//              grid, quadrants) and whether they merge or cancel where they overlap
 //   container  an outer shape the pieces are carved out of, or that is the ink
 //   cut        a slit (maybe opening into a star or diamond), an S channel, a
 //              centre opening, or a round trim
@@ -14,7 +15,7 @@
 // when both use the same kind of part their numbers are blended. So new
 // marks land on and between the references, never far from them.
 import { ORIGIN, circle, ellipse, rect, quad, roundedPolygon, ring, unite, subtract, intersect, xor } from './geom.js';
-import { capsule, arcStroke, polygon, polyStroke, wedge, roundCorners } from './shapes.js';
+import { capsule, band, arcBand, polygon, wedge, roundCorners } from './shapes.js';
 
 const S = 20;
 const rad = (deg) => (deg * Math.PI) / 180;
@@ -125,6 +126,44 @@ export const ANCHORS = {
     round: 0.04,
     vary: { container: { kind: ['squircle', 'square', 'circle', 'pill'] }, cut: { kind: ['zig', 'zig', 'wave'], g: span(0.08, 0.12), lift: span(0.18, 0.34), run: span(0.05, 0.35) }, round: span(0.03, 0.05) },
   },
+  // chevrons facing each other, in a row, or pointing out round a ring
+  chevrons: {
+    piece: { kind: 'chevron', len: 0.5, open: 90, t: 0.16, bend: 0.08 },
+    layout: { mode: 'mirror', turn: 0, gap: 0.15 },
+    round: 0.03,
+    vary: {
+      piece: { len: span(0.42, 0.6), open: span(75, 105), t: span(0.14, 0.2), bend: span(0.05, 0.12) },
+      layout: [
+        { mode: 'ring', n: [4, 4, 5, 6], fit: span(0.2, 0.4), inset: span(1.05, 1.3) },
+        { mode: 'row', n: [2, 3], spacing: span(0.5, 0.7) },
+        { mode: 'mirror', turn: [0, 180], gap: span(0.08, 0.25) },
+      ],
+    },
+  },
+  // a ring broken into round-ended arcs
+  arcs: {
+    piece: { kind: 'arc', t: 0.22, gap: 0.2 },
+    layout: { mode: 'ring', n: 3 },
+    round: 0.02,
+    vary: { piece: { t: span(0.17, 0.26), gap: span(0.14, 0.3) }, layout: { n: [2, 3, 3, 4], offset: [0, 'half'] } },
+  },
+  // discs or soft squares on a small grid, merged or cancelled where they overlap
+  grid: {
+    piece: { kind: 'disc', r: 0.5 },
+    layout: { mode: 'grid', m: 2, mask: 'full', spacing: 0.75, join: 'xor' },
+    round: 0.02,
+    vary: {
+      piece: { kind: ['disc', 'disc', 'block'], r: span(0.25, 0.45) },
+      layout: { m: [2, 2, 3], mask: ['full', 'ring', 'five'], spacing: span(0.62, 0.85), join: ['union', 'xor', 'xor'] },
+    },
+  },
+  // two thick arches hooked into each other, one turned over
+  chain: {
+    piece: { kind: 'arch', w: 0.8, h: 1, t: 0.16 },
+    layout: { mode: 'pair', stack: 0.55, shift: 0.3 },
+    round: 0.04,
+    vary: { piece: { w: span(0.7, 0.95), h: span(0.8, 1.2), t: span(0.14, 0.19) }, layout: { stack: span(0.4, 0.7), shift: span(0.22, 0.35) } },
+  },
   // a solid shape with a window in the middle and a dot inside it
   window: {
     container: { kind: 'squircle' },
@@ -140,21 +179,28 @@ export const ANCHOR_NAMES = Object.keys(ANCHORS);
 // ------------------------------------------------------------- the parts
 
 // Pieces built in place, for a given count, rather than centred and moved.
-const FIXED = new Set(['kite', 'bend']);
+const FIXED = new Set(['kite', 'bend', 'arc']);
 const fixedPiece = (dna) => FIXED.has(dna.piece?.kind);
 
 // Layouts each kind of free piece reads well in. Lopsided pieces never go in
 // a ring: turned copies of them make pinwheels (and, in fours, worse).
 const FITS = {
-  ellipse: ['ring', 'row', 'bars'],
+  ellipse: ['ring', 'row'],
   capsule: ['ring', 'bars'],
   slab: ['pair', 'row'],
   chamfer: ['pair'],
   cells: ['quad', 'pair'],
   half: ['pair', 'row'],
   quarter: ['quad'],
+  chevron: ['ring', 'row', 'mirror'],
+  arch: ['pair'],
+  disc: ['grid', 'ring', 'row'],
+  block: ['grid'],
 };
 const fits = (piece, layout) => FITS[piece.kind]?.includes(layout.mode);
+// Pieces with a single mirror axis: in a ring that axis has to point along the
+// radius, or the copies chase each other round as a pinwheel.
+const ONE_AXIS = new Set(['chevron']);
 
 // cells in one quadrant, x outward and y downward from the middle
 const PATTERNS = {
@@ -199,6 +245,28 @@ function makePiece(p, n) {
       const blocks = PATTERNS[p.pattern].map(([i, j]) => rect((i + 0.5) * c, (j + 0.5) * c, c * 1.002, c * 1.002));
       return roundCorners(unite(blocks), c * p.r);
     }
+    case 'disc':
+      return circle(0, 0, S * 0.5);
+    case 'block':
+      return rect(0, 0, S, S, S * p.r);
+    case 'chevron': {
+      // two arms meeting in a rounded point, pointing right; `bend` is the
+      // radius left on the inside of the point
+      const h = rad(p.open / 2);
+      const arm = [-p.len * S * Math.cos(h), p.len * S * Math.sin(h)];
+      return band([[arm[0], -arm[1]], [0, 0], arm], p.t * S, { radius: (p.t + p.bend) * S });
+    }
+    case 'arch': {
+      // an upside-down U: two legs and a half-circle top
+      const r = (p.w * S) / 2;
+      return band([[-r, p.h * S], [-r, 0], [r, 0], [r, p.h * S]], p.t * S, { radius: r });
+    }
+    case 'arc': {
+      // one of n round-ended arcs on a ring, `gap` apart end to end
+      const R = S * (1 - p.t);
+      const half = span / 2 - ((p.t * S + (p.gap * S) / 2) / R) * (180 / Math.PI);
+      return arcBand(R, -half, half, p.t * S);
+    }
     case 'kite': {
       // one wedge of an n-gon whose corners sit on the cuts, turned a little
       const outline = polygon(ring(n, S, 90 + 180 / n));
@@ -208,17 +276,14 @@ function makePiece(p, n) {
     }
     case 'bend': {
       // tail → round bend → slant, set off so its 180° turn runs alongside
-      const t = p.t * S;
       const a = rad(p.angle);
       const slant = p.len * S;
-      const bend = p.bend * S;
       const lift = slant * Math.sin(a) * 0.3;
       const corner = [-((p.apart * S) / 2 + lift * Math.cos(a)) / Math.sin(a), lift];
-      const tl = bend * Math.tan(a / 2);
-      const t1 = [corner[0] - tl, corner[1]];
-      const t2 = [corner[0] + Math.cos(a) * tl, corner[1] - Math.sin(a) * tl];
+      const tl = p.bend * S * Math.tan(a / 2);
+      const start = [corner[0] - tl - p.tail * S, corner[1]];
       const end = [corner[0] + Math.cos(a) * slant, corner[1] - Math.sin(a) * slant];
-      return unite(capsule(t1[0] - p.tail * S, t1[1], t1[0], t1[1], t), arcStroke(t1[0], t1[1] - bend, bend, 90 - p.angle, 90, t), capsule(t2[0], t2[1], end[0], end[1], t));
+      return band([start, corner, end], p.t * S, { radius: p.bend * S });
     }
     default:
       return null;
@@ -241,12 +306,20 @@ function arrange(piece, dna) {
     const n = L.n;
     let base = piece;
     if (!fixed) {
-      base = copy(piece).rotate(L.turn ?? 0, ORIGIN);
+      const turn = ONE_AXIS.has(dna.piece.kind) ? (L.turn === 180 ? 180 : 0) : (L.turn ?? 0);
+      const turned = copy(piece).rotate(turn, ORIGIN);
       // far enough out that neighbours keep `fit` of a piece apart
-      const along = base.bounds.height;
-      const out = base.bounds.width;
-      const d = Math.max((along * (1 + (L.fit ?? 0.2))) / (2 * Math.sin(Math.PI / n)), (out / 2) * (L.inset ?? 1.1));
-      base.translate([d, 0]);
+      const along = turned.bounds.height;
+      const out = turned.bounds.width;
+      const fit = L.fit ?? 0.2;
+      let d = Math.max((along * (1 + fit)) / (2 * Math.sin(Math.PI / n)), (out / 2) * (L.inset ?? 1.1));
+      base = copy(turned).translate([d, 0]);
+      // the estimate above is for pieces facing their neighbours squarely;
+      // push out until pieces meant to stand apart really do
+      for (let k = 0; fit >= 0 && k < 16 && base.intersects(copy(base).rotate(360 / n, ORIGIN)); k++) {
+        d *= 1.06;
+        base = copy(turned).translate([d, 0]);
+      }
     }
     const offset = L.offset === 'half' ? 180 / n : 0;
     return Array.from({ length: n }, (_, k) => copy(base).rotate((360 * k) / n + offset - 90, ORIGIN));
@@ -259,6 +332,27 @@ function arrange(piece, dna) {
     const { width, height } = piece.bounds;
     const a = copy(piece).translate([width * (L.shift ?? 0), (-height / 2) * (L.stack ?? 1.2)]);
     return [a, copy(a).rotate(180, ORIGIN)];
+  }
+  if (L.mode === 'mirror') {
+    // the piece and its reflection, side by side
+    const a = copy(piece).rotate(L.turn ?? 0, ORIGIN);
+    a.translate([a.bounds.width / 2 + ((L.gap ?? 0.1) * S) / 2 - a.bounds.center.x, -a.bounds.center.y]);
+    return [a, copy(a).scale(-1, 1, ORIGIN)];
+  }
+  if (L.mode === 'grid') {
+    // an m × m grid; 'ring' leaves the middle out, 'five' keeps corners and middle
+    const step = piece.bounds.width * L.spacing;
+    const at = [];
+    for (let i = 0; i < L.m; i++) {
+      for (let j = 0; j < L.m; j++) {
+        const x = i - (L.m - 1) / 2;
+        const y = j - (L.m - 1) / 2;
+        if (L.m === 3 && L.mask === 'ring' && !x && !y) continue;
+        if (L.m === 3 && L.mask === 'five' && (Math.abs(x) + Math.abs(y)) % 2) continue;
+        at.push(copy(piece).translate([x * step, y * step]));
+      }
+    }
+    return at;
   }
   if (L.mode === 'row') {
     const step = piece.bounds.width * L.spacing;
@@ -312,15 +406,12 @@ function applyCut(item, cut) {
     const cuts = [rect(0, 0, reach * 4, reach * cut.g * 2), middleShape(cut.middle, reach * cut.size)].filter(Boolean);
     return subtract(item, ...cuts.map((c) => c.translate([0, off]).rotate(cut.angle ?? 0, ORIGIN)));
   }
-  if (cut.kind === 'zig') {
+  if (cut.kind === 'zig' || cut.kind === 'wave') {
+    // a step across the middle: tight bends, or bent as far as it goes into an S
     const y = reach * cut.lift;
     const x = reach * cut.run;
-    return subtract(item, polyStroke([[-reach * 2, y + off], [-x, y + off], [x, off - y], [reach * 2, off - y]], reach * cut.g));
-  }
-  if (cut.kind === 'wave') {
-    // two half circles joined into an S, edge to edge
-    const r = reach / 2;
-    return subtract(item, arcStroke(-r, off, r, 180, 360, reach * cut.g), arcStroke(r, off, r, 0, 180, reach * cut.g));
+    const radius = reach * (cut.kind === 'wave' ? 2 : cut.g * 1.6);
+    return subtract(item, band([[-reach * 2, y + off], [-x, y + off], [x, off - y], [reach * 2, off - y]], reach * cut.g, { radius, round: false }));
   }
   return item;
 }
@@ -387,6 +478,12 @@ function vary(dna, rng, share) {
       continue;
     }
     if (!out[slot]) continue;
+    // a list offers whole alternatives for the slot (another kind of layout)
+    if (Array.isArray(genes)) {
+      const pick = rng.pick(genes);
+      out[slot] = { ...(pick.mode === out[slot].mode ? out[slot] : {}), ...Object.fromEntries(Object.entries(pick).map(([key, spec]) => [key, roll(rng, spec)])) };
+      continue;
+    }
     for (const [key, spec] of Object.entries(genes)) if (rng.chance(share)) out[slot][key] = roll(rng, spec);
   }
   if (out.cut?.middle === 'none') delete out.cut.middle;
@@ -410,12 +507,12 @@ function take(child, from, slot, rng) {
   else delete child.vary[slot];
 }
 
-// Slits and channels need a solid body to run through, not a ring of loose
-// pieces; a round trim suits pieces that reach past a circle.
+// Slits and channels need a solid body to run through: across loose pieces
+// they shave slivers off whatever they graze. A round trim suits bars.
 function suits(cut, dna) {
-  if (cut.kind === 'trim') return ['bars', 'quad'].includes(dna.layout?.mode);
+  if (cut.kind === 'trim') return dna.layout?.mode === 'bars';
   if (cut.kind === 'open') return true;
-  return Boolean(dna.container) || ['pair', 'row', 'quad'].includes(dna.layout?.mode);
+  return Boolean(dna.container);
 }
 
 // Moves one or two slots across from recipe b into a copy of recipe a.
@@ -451,7 +548,7 @@ function cross(a, b, rng) {
 // Off balance, but only just: the cut moves off the middle, or one piece
 // comes out a little smaller, so the visual weight stays centred.
 function unbalance(dna, rng) {
-  if (dna.cut?.kind === 'slit' || dna.cut?.kind === 'zig') dna.cut.offset = rng.float(0.1, 0.22) * rng.pick([1, -1]);
+  if (['slit', 'zig', 'wave'].includes(dna.cut?.kind)) dna.cut.offset = rng.float(0.1, 0.22) * rng.pick([1, -1]);
   else if (['pair', 'row', 'quad'].includes(dna.layout?.mode)) dna.layout.odd = rng.float(0.74, 0.86);
   return dna;
 }
@@ -470,10 +567,23 @@ export function recipeFor(anchor, rng, loose = false) {
 
 export const BLEND_LIMITS = { minAspect: 0.5, freePieces: 9, maxNodes: 120, maxFine: 0.015, maxSpikes: 4, smooth: true, maxGap: 0.2 };
 
+// What a mark is built from, ignoring the numbers. Marks with the same
+// structure read as the same kind of mark, however their sizes differ.
+export function structureOf(dna) {
+  const L = dna.layout;
+  const parts = [
+    dna.piece && `${dna.piece.kind}/${L.mode}${L.mode === 'grid' ? L.m : ''}${L.join === 'xor' ? '^' : ''}`,
+    dna.container && 'box',
+    dna.cut && dna.cut.kind !== 'none' && dna.cut.kind,
+    dna.core && 'core',
+  ];
+  return parts.filter(Boolean).join(' ');
+}
+
 export function blendFrom(anchor) {
   return (rng, { loose } = {}) => {
     const dna = recipeFor(anchor, rng, loose);
     const item = buildDna(dna);
-    return item && { item, symmetry: 'auto', limits: BLEND_LIMITS, dna };
+    return item && { item, symmetry: 'auto', limits: BLEND_LIMITS, kind: structureOf(dna) };
   };
 }

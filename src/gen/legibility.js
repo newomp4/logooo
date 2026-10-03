@@ -576,17 +576,27 @@ export function sharpCorners(shape) {
 // How far the loneliest piece sits from its nearest neighbour, as a share of
 // the mark's size. Pieces that drift apart stop reading as one mark.
 export function widestGap(shape) {
-  const pieces = (shape.children ?? [shape]).filter((c) => c.area > 0);
-  if (pieces.length < 2) return 0;
+  const loops = shape.children ?? [shape];
+  const outers = loops.filter((c) => c.area > 0);
+  if (outers.length < 2) return 0;
   const size = Math.max(shape.bounds.width, shape.bounds.height);
   const sample = (p, n) => Array.from({ length: n }, (_, i) => p.getPointAt((p.length * i) / n));
-  const pts = pieces.map((p) => sample(p, 48));
+  // a piece is an outline plus the holes in it: a dot in an opening is as close
+  // as the opening's edge, not the far outside of the shape around it
+  const pieces = outers.map((o) => sample(o, 48));
+  for (const hole of loops.filter((c) => c.area < 0)) {
+    const at = hole.getPointAt(0);
+    const owners = outers.map((o, k) => [o, k]).filter(([o]) => o.contains(at));
+    if (!owners.length) continue;
+    const [, k] = owners.reduce((a, b) => (Math.abs(b[0].area) < Math.abs(a[0].area) ? b : a));
+    pieces[k].push(...sample(hole, 48));
+  }
   let widest = 0;
   for (let i = 0; i < pieces.length; i++) {
     let nearest = Infinity;
     for (let j = 0; j < pieces.length; j++) {
       if (i === j) continue;
-      for (const a of pts[i]) for (const b of pts[j]) nearest = Math.min(nearest, a.getDistance(b));
+      for (const a of pieces[i]) for (const b of pieces[j]) nearest = Math.min(nearest, a.getDistance(b));
     }
     widest = Math.max(widest, nearest);
   }

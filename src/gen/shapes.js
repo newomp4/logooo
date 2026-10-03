@@ -1,7 +1,7 @@
 // Exact building blocks. Every outline here is made of straight lines, circular
 // arcs and ellipses, combined with boolean ops; softness comes from filleting
 // corners with tangent arcs, like Illustrator's live corners. Nothing is traced.
-import { paper, circle, unite } from './geom.js';
+import { paper } from './geom.js';
 
 const { Path, CompoundPath, Point, Segment } = paper;
 const rad = (deg) => (deg * Math.PI) / 180;
@@ -16,27 +16,76 @@ export function capsule(ax, ay, bx, by, r) {
   return shape;
 }
 
-// A stroke along a polyline, with round joins and caps.
-export function polyStroke(points, r) {
-  const parts = [];
-  for (let i = 1; i < points.length; i++) parts.push(capsule(...points[i - 1], ...points[i], r));
-  return unite(parts);
+// A stroke of half-width w along a polyline whose bends are rounded with
+// arcs of the given radius (less where a run is too short for it), drawn as
+// one exact outline: offset lines and concentric arcs, no overlapping parts to
+// merge. Ends are round, or flat (for cuts that run off the shape anyway).
+export function band(points, w, { radius = w * 1.5, round = true } = {}) {
+  const P = points.map((p) => new Point(p));
+  const n = P.length;
+  const dir = (i) => P[i + 1].subtract(P[i]).normalize();
+  const left = (d) => new Point(-d.y, d.x);
+  // each bend: where the arc meets the runs either side, its centre and radius
+  const bends = [];
+  for (let i = 1; i < n - 1; i++) {
+    const d1 = dir(i - 1);
+    const d2 = dir(i);
+    const turn = Math.acos(Math.max(-1, Math.min(1, d1.dot(d2))));
+    if (turn < 1e-3) continue;
+    const room = Math.min(P[i].getDistance(P[i - 1]), P[i].getDistance(P[i + 1])) / 2;
+    const tl = Math.min(radius * Math.tan(turn / 2), room);
+    const r = Math.max(tl / Math.tan(turn / 2), w * 1.05);
+    const t = r * Math.tan(turn / 2);
+    let side = left(d1);
+    if (side.dot(d2) < 0) side = side.multiply(-1);
+    const from = P[i].subtract(d1.multiply(t));
+    bends.push({ i, from, to: P[i].add(d2.multiply(t)), centre: from.add(side.multiply(r)), r, corner: P[i] });
+  }
+  const path = new Path();
+  // one side, then back along the other
+  const walk = (sign) => {
+    const order = sign > 0 ? bends : bends.slice().reverse();
+    for (const b of order) {
+      const dIn = sign > 0 ? dir(b.i - 1) : dir(b.i).multiply(-1);
+      const dOut = sign > 0 ? dir(b.i) : dir(b.i - 1).multiply(-1);
+      const a = sign > 0 ? b.from : b.to;
+      const z = sign > 0 ? b.to : b.from;
+      const start = a.add(left(dIn).multiply(w));
+      const end = z.add(left(dOut).multiply(w));
+      // this side runs inside the bend when its offset points at the centre
+      const inner = left(dIn).dot(b.centre.subtract(a)) > 0;
+      const mid = b.centre.add(b.corner.subtract(b.centre).normalize().multiply(b.r + (inner ? -w : w)));
+      path.lineTo(start);
+      path.arcTo(mid, end);
+    }
+  };
+  const d0 = dir(0);
+  const dn = dir(n - 2);
+  path.moveTo(P[0].add(left(d0).multiply(w)));
+  walk(1);
+  path.lineTo(P[n - 1].add(left(dn).multiply(w)));
+  if (round) path.arcTo(P[n - 1].add(dn.multiply(w)), P[n - 1].subtract(left(dn).multiply(w)));
+  else path.lineTo(P[n - 1].subtract(left(dn).multiply(w)));
+  walk(-1);
+  path.lineTo(P[0].subtract(left(d0).multiply(w)));
+  if (round) path.arcTo(P[0].subtract(d0.multiply(w)), P[0].add(left(d0).multiply(w)));
+  path.closePath();
+  return path;
 }
 
-// A stroke along a circular arc (degrees, a0 < a1, span < 360) with round caps.
-export function arcStroke(cx, cy, R, a0, a1, r) {
+// A stroke of half-width w along a circular arc of radius R round the
+// origin, from angle a0 to a1 (degrees), with round ends: one exact outline.
+export function arcBand(R, a0, a1, w) {
   const mid = (a0 + a1) / 2;
-  const band = new Path();
-  band.moveTo(polarPt(R + r, a0, cx, cy));
-  band.arcTo(polarPt(R + r, mid, cx, cy), polarPt(R + r, a1, cx, cy));
-  band.lineTo(polarPt(R - r, a1, cx, cy));
-  band.arcTo(polarPt(R - r, mid, cx, cy), polarPt(R - r, a0, cx, cy));
-  band.closePath();
-  const ends = [a0, a1].map((a) => {
-    const p = polarPt(R, a, cx, cy);
-    return circle(p.x, p.y, r);
-  });
-  return unite(band, ...ends);
+  const tangent = (deg) => new Point(-Math.sin(rad(deg)), Math.cos(rad(deg)));
+  const path = new Path();
+  path.moveTo(polarPt(R + w, a0));
+  path.arcTo(polarPt(R + w, mid), polarPt(R + w, a1));
+  path.arcTo(polarPt(R, a1).add(tangent(a1).multiply(w)), polarPt(R - w, a1));
+  path.arcTo(polarPt(R - w, mid), polarPt(R - w, a0));
+  path.arcTo(polarPt(R, a0).subtract(tangent(a0).multiply(w)), polarPt(R + w, a0));
+  path.closePath();
+  return path;
 }
 
 // Polygon from [[x, y], ...].
@@ -83,7 +132,11 @@ function roundPath(source, radius, minAngle) {
   for (let pass = 0; pass < 3; pass++) {
     for (const c of path.curves.slice()) {
       if (path.curves.length <= 3) break;
-      if (c.length < tiny) c.segment2.remove();
+      if (c.length < tiny) {
+        // the next curve keeps its own outgoing handle, so it isn't bent out of shape
+        c.segment1.handleOut = c.segment2.handleOut;
+        c.segment2.remove();
+      }
     }
   }
   const curves = path.curves;

@@ -7,8 +7,10 @@ const STORAGE_KEY = 'logooo:v1';
 const MAX_HISTORY = 240;
 const MAX_SAVED = 500;
 const MAX_HIDDEN = 300;
-// a new mark is rerolled if it overlaps one of the last RECENT this much
+// a new mark is rerolled if it overlaps one of the last RECENT this much,
+// or is built the same way as one of the last RECENT_KINDS
 const RECENT = 40;
+const RECENT_KINDS = 18;
 const TOO_ALIKE = 0.8;
 // anything this close to a hidden mark never shows up again
 const HIDDEN_ALIKE = 0.72;
@@ -230,14 +232,22 @@ function show(entry) {
 function create() {
   // keep the candidate least like anything recent; usually the first one is fine
   const recent = state.history.slice(0, RECENT).map(sigOf);
+  // the same build (piece, layout, cut) as a recent mark reads as a repeat,
+  // even when the silhouettes differ
+  const recentKinds = state.history.slice(0, RECENT_KINDS).map((e) => e.kind);
   let best = null;
-  for (let attempt = 0; attempt < 16; attempt++) {
+  // look for a fresh mark inside the chosen style before moving on to another,
+  // so rejections don't hand extra turns to sparse styles that never overlap much
+  search: for (let round = 0; round < 4; round++) {
     const family = state.mode === 'all' ? pickFamily() : state.mode;
-    const candidate = build(randomSeed(), family, !state.strict);
-    if (!candidate || isHidden(candidate.sig)) continue;
-    const closest = recent.reduce((max, sig) => Math.max(max, likeness(sig, candidate.sig)), 0);
-    if (!best || closest < best.closest) best = { candidate, closest };
-    if (closest < TOO_ALIKE) break;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const candidate = build(randomSeed(), family, !state.strict);
+      if (!candidate || isHidden(candidate.sig)) continue;
+      const closest = recent.reduce((max, sig) => Math.max(max, likeness(sig, candidate.sig)), 0);
+      const score = closest + (recentKinds.includes(candidate.kind) ? 0.5 : 0);
+      if (!best || score < best.score) best = { candidate, score };
+      if (score < TOO_ALIKE) break search;
+    }
   }
   if (!best) return;
   show({ ...best.candidate, mode: best.candidate.family });

@@ -10,14 +10,14 @@ Every mark is built the way you'd build it in Illustrator: exact circles, ellips
 
 Most styles grow from a **reference recipe**: one of the logos this was modelled on, written down as primitives in slots (`src/gen/blend.js`):
 
-- **piece:** the shape being repeated (an oval, a leaning or chamfered slab, a half or quarter disc, rounded blocks, a kite, a bent stroke)
-- **layout:** how the copies sit (a ring, bars through the middle, a 180° pair, a row, four mirrored corners), and whether overlaps merge or cancel out
+- **piece:** the shape being repeated (an oval, a leaning or chamfered slab, a half or quarter disc, rounded blocks, a kite, a chevron, an arch, a disc, a bent stroke)
+- **layout:** how the copies sit (a ring, bars through the middle, a 180° pair, a mirrored pair, a row, a small grid, four mirrored corners), and whether overlaps merge or cancel out
 - **container:** an outer shape the pieces are cut out of, or that is the ink itself
 - **cut:** a slit that opens into a star, diamond or lens; a stepped or S-curved channel; a centre opening; a round trim
 - **core:** a dot, diamond or star in an empty middle
 - **round:** one corner radius for the whole mark
 
-Each recipe also says how far its numbers may move. A new mark is a recipe with some of its numbers re-rolled inside those ranges, or two recipes crossed: a slot moves across from another recipe (an asterisk carved out of a squircle, a Z block cut from a circle), and when both use the same kind of part their numbers are blended. So marks land on and between the references, not far from them. Pieces only go in layouts they read well in: lopsided pieces never go in a ring, where turned copies make pinwheels.
+Strokes, chevrons, arches, arcs and channels are drawn as one exact outline (offset lines and concentric arcs) rather than merged from overlapping capsules, so there are no seams where parts meet. Each recipe also says how far its numbers may move. A new mark is a recipe with some of its numbers re-rolled inside those ranges, or two recipes crossed: a slot moves across from another recipe (an asterisk carved out of a squircle, a Z block cut from a circle), and when both use the same kind of part their numbers are blended. So marks land on and between the references, not far from them. Pieces only go in layouts they read well in: lopsided pieces never go in a ring, where turned copies make pinwheels, and slits and channels only run through solid bodies, never across loose pieces they'd shave slivers off.
 
 | Style | What it makes |
 | --- | --- |
@@ -33,6 +33,10 @@ Each recipe also says how far its numbers may move. A new mark is a recipe with 
 | Kites | A polygon cut into slightly turned kites |
 | Asterisk | Thick bars through the middle, round-ended or trimmed by a circle |
 | Window | A solid shape with a star or lens window and a dot inside |
+| Chevrons | Chevrons facing each other, in a row, or pointing out round a ring |
+| Arcs | A ring broken into round-ended arcs |
+| Grid | Discs or soft squares on a small grid, merged or cancelled where they overlap |
+| Chain | Two thick arches hooked into each other, one turned over |
 | Strokes | A bent stroke and its 180° turn |
 | Bloom | Circles on a grid or ring melted into a scalloped frame (the circle-grid look) |
 | Cloud | Circles bunched and filleted into a soft body, filled or outlined, sometimes with eyes |
@@ -56,7 +60,7 @@ Before a mark is shown it has to pass two checks, or it's rerolled:
 
 ### Fewer repeats
 
-Every mark gets a 32×32 silhouette fingerprint. A new mark that overlaps one of your last 40 by 80% or more is swapped for a fresher one, and the styles of your last six marks are picked much less often.
+Every mark gets a 32×32 silhouette fingerprint and a structure (what it's built from, ignoring sizes: say "chevron in a mirrored pair, cut from a box"). A new mark that overlaps one of your last 40 by 80% or more, or is built the same way as one of your last 18, is swapped for a fresher one from the same style before another style is tried. The styles of your last six marks are picked much less often.
 
 ## Use
 
