@@ -39,11 +39,6 @@ export function arcStroke(cx, cy, R, a0, a1, r) {
   return unite(band, ...ends);
 }
 
-// Ring between two radii.
-export function annulus(inner, outer, cx = 0, cy = 0) {
-  return circle(cx, cy, outer).subtract(circle(cx, cy, inner), { insert: false });
-}
-
 // Polygon from [[x, y], ...].
 export function polygon(points) {
   return new Path({ segments: points, closed: true });

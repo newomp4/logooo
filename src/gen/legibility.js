@@ -448,16 +448,20 @@ function forbiddenShapes() {
     for (const deg of [90, 180, 270]) hooked = hooked.unite(bars(arms.slice(2)).rotate(deg, [0, 0]), { insert: false });
     for (const flip of [1, -1]) {
       const h = hooked.clone({ insert: false }).scale(flip, 1, [0, 0]);
-      for (const deg of [0, 45]) shapes.push({ sig: signature(at100(h.clone({ insert: false }).rotate(deg, [0, 0]))), limit: 0.6 });
+      for (const deg of [0, 45]) shapes.push({ sig: signature(at100(h.clone({ insert: false }).rotate(deg, [0, 0]))), limit: 0.6, hooked: true });
     }
   }
   FORBIDDEN = shapes;
   return shapes;
 }
 
-export function forbidden(shape) {
+// The hooked cross only turns, never mirrors, in steps of 90°: a mark with any
+// other symmetry can't be one, however much ink it shares with the template
+// (a near-solid square shares a lot).
+export function forbidden(shape, label) {
   const sig = signature(at100(shape));
-  return forbiddenShapes().some((f) => likeness(sig, f.sig) >= f.limit);
+  const turnsOnly = !label || /^C(4|8)$/.test(label);
+  return forbiddenShapes().some((f) => (turnsOnly || !f.hooked) && likeness(sig, f.sig) >= f.limit);
 }
 
 // --------------------------------------------------------------- fine bits

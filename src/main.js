@@ -207,11 +207,10 @@ function renderInks() {
 
 // Weighted pick that backs off styles you've just seen.
 function pickFamily() {
-  const recent = state.history.slice(0, 5).map((e) => e.family);
+  const recent = state.history.slice(0, 6).map((e) => e.family);
   const pool = FAMILY_NAMES.filter((name) => !state.strict || !FAMILY_INFO[name].loose).map((name) => {
     const at = recent.indexOf(name);
-    // procedural marks differ every time, so they never need a break
-    const damp = name === 'form' || at === -1 ? 1 : at < 2 ? 0.15 : 0.5;
+    const damp = at === -1 ? 1 : at < 3 ? 0.1 : 0.4;
     return [name, FAMILY_INFO[name].weight * damp * taste(name)];
   });
   let roll = Math.random() * pool.reduce((sum, [, w]) => sum + w, 0);
