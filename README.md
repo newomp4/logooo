@@ -4,12 +4,7 @@ Geometric logo marks, symmetric by default. Press space, get a mark, copy it as 
 
 ![logooo](docs/screenshot.png)
 
-Marks are built two ways:
-
-- **Booleans:** plain geometry (circles, squircles, concave sparks, grid cells) repeated under a symmetry group (C2, D2, D4, Dn) and combined with paper.js union, subtract and XOR, where overlaps cancel out.
-- **Signed distance fields** (`src/gen/sdf.js`): every shape is a "distance to edge" function. Smooth unions give filleted, gooey joins and smooth cuts give soft corners, and the field is traced into a path with marching squares.
-
-Either way the output is a single vector path.
+Every mark is built the way you'd build it in Illustrator: exact circles, ellipses, rounded rectangles, polygons, arcs and round-capped strokes, combined with boolean ops (union, subtract, intersect, and XOR, where overlaps cancel out). Softness comes from true tangent-arc fillets on corners (`src/gen/shapes.js`), like Illustrator's live corners. Nothing is traced, so the output is a clean vector path with only as many points as the shape needs.
 
 ## Styles
 
@@ -25,12 +20,11 @@ The main styles are compositional: each picks from a small vocabulary (container
 | Soft | Lobed curves, melted balls, mirrored characters, lopsided dumbbells |
 | Stroke | Monoline strokes with round caps: bent pairs, gooey asterisks, chasing arcs, turbines, splats |
 | Dash, Arch, Petal, Spoke, Sector, Split | Rings of ellipses, split overlapping ovals, leaves, asterisks, cut rings and polygons, slid halves |
-| Badge, Ring, Bloom, Orbit, Stripe, Glyph, Lattice, Tiles, Spark, Pixel, Field | Older styles, kept as occasional accents |
-| Fan | Tapered rays that shrink as they sweep around (asymmetric mode only) |
+| Badge, Ring, Bloom, Orbit, Stripe, Lattice, Tiles, Spark, Pixel, Field | Older styles, kept as occasional accents |
 
 ### Symmetric only
 
-On by default: every mark has mirror and/or rotational symmetry. Switch it off to also get asymmetric marks (fans, splats) that are balanced instead. Their visual centre of mass has to sit near the middle of the mark.
+On by default: every mark has mirror and/or rotational symmetry. Switch it off to also get asymmetric marks (splats, one-sided carves, loose blocks) that are balanced instead. Their visual centre of mass has to sit near the middle of the mark.
 
 ### Quality checks
 
@@ -41,7 +35,7 @@ Before a mark is shown it has to pass two checks, or it's rerolled:
 
 ### Fewer repeats
 
-Every mark gets a 32×32 silhouette fingerprint. A new mark that overlaps one of your last 40 by 80% or more is swapped for a fresher one, and styles you've just seen are picked less often. Traced outlines are refitted with as few curves as the shape needs, so exported SVGs stay clean.
+Every mark gets a 32×32 silhouette fingerprint. A new mark that overlaps one of your last 40 by 80% or more is swapped for a fresher one, and styles you've just seen are picked less often. 
 
 ## Use
 
@@ -75,7 +69,7 @@ src/
   gen/
     rng.js        seeded PRNG
     geom.js       primitives, symmetry groups, booleans, contour tracing, clean-up and checks
-    sdf.js        signed-distance shapes and operations
+    shapes.js     exact strokes, arcs, rings, wedges and live-corner fillets
     legibility.js icon-size raster check, symmetry detection, balance, plainness, fingerprints
     compose.js    compositional styles (carve, pair, block, tetro, cloud)
     families.js   the other styles and the weights

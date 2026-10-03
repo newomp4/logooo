@@ -1,11 +1,11 @@
 // Each family turns a seeded rng into a symmetric paper.js shape.
 // They return null when a roll doesn't produce something worth keeping.
 import {
-  K, ORIGIN, Path, Point, circle, ellipse, rect, quad, place, shear, leaf, drop, starPoints, roundedPolygon, polar, isoContour,
+  K, ORIGIN, Path, Point, circle, ellipse, rect, quad, place, shear, leaf, drop, starPoints, roundedPolygon, polar,
   grid, ring, group, orbit,
   unite, xor, subtract, intersect, clearance, reach, fitInside, gridOutline, compound,
 } from './geom.js';
-import * as sd from './sdf.js';
+import { capsule, arcStroke, annulus, polygon, wedge, roundCorners } from './shapes.js';
 import { carve, pair, block, tetro, cloud } from './compose.js';
 
 const U = 10; // base spacing; everything is rescaled at the end
@@ -612,88 +612,66 @@ function softWave(rng) {
   return { item, symmetry: `${lean ? 'C' : 'D'}${n}` };
 }
 
-// Traces balls [[x, y, r], ...] melted together. Each ball reaches twice its
-// radius and fades out smoothly, so only neighbours melt; at level 0.42 a
-// lone ball keeps its radius. Returns null unless it comes out as one piece.
-function melt(balls, level) {
-  const field = (x, y) => {
-    let f = 0;
-    for (const [bx, by, r] of balls) {
-      const q = ((x - bx) ** 2 + (y - by) ** 2) / (4 * r * r);
-      if (q < 1) f += (1 - q) ** 3;
-    }
-    return f;
-  };
-  const extent = Math.max(...balls.map(([x, y, r]) => Math.max(Math.abs(x), Math.abs(y)) + 2 * r)) * 1.1;
-  const item = isoContour(field, extent, 150, level);
+// Circles bunched together with filleted joins: an exact take on metaballs.
+// Returns null unless they make one piece (holes are fine).
+function blob(balls, fillet, extra = []) {
+  const item = roundCorners(unite([...balls.map(([x, y, r]) => circle(x, y, r)), ...extra]), fillet);
   if (!item || item.reorient(false, true).children.filter((c) => c.area > 0).length !== 1) return null;
   return item;
 }
 
 function softMelt(rng) {
-  // two balls can melt into a plain pill; the dumbbell lives in softDuo
   const n = rng.weighted([[3, 1.4], [4, 2], [5, 1.4], [6, 1.4], [8, 0.7]]);
   const R = U * 1.5;
-  const ball = R * (n <= 3 ? rng.float(0.55, 0.85) : rng.float(0.4, 0.68));
+  const chord = 2 * R * Math.sin(Math.PI / n);
+  // neighbours overlap a little so there's a join to fillet
+  const ball = Math.max(chord * rng.float(0.56, 0.75), n <= 3 ? R * rng.float(0.55, 0.8) : 0);
   const balls = ring(n, R, n % 2 ? 0 : rng.pick([0, 180 / n])).map(([x, y]) => [x, y, ball]);
   const core = rng.weighted([['none', 2], ['ball', 2], ['small', 1]]);
   if (core === 'ball') balls.push([0, 0, ball * rng.float(0.8, 1.15)]);
-  if (core === 'small') balls.push([0, 0, ball * rng.float(0.35, 0.55)]);
-  if (rng.chance(0.25)) {
-    const outerR = R * rng.float(1.55, 1.9);
-    const small = ball * rng.float(0.35, 0.55);
-    for (const [x, y] of ring(n, outerR, 180 / n)) balls.push([x, y, small]);
-  }
-  const item = melt(balls, 0.42 * rng.float(0.8, 1.2));
-  return item && { item, symmetry: `D${n}`, limits: { minFeature: 1.6, ...sd.TRACED } };
+  if (core === 'small') balls.push([0, 0, Math.max(ball * rng.float(0.35, 0.55), R - ball + U * 0.2)]);
+  const item = blob(balls, U * rng.float(0.3, 0.9));
+  return item && { item, symmetry: `D${n}`, limits: { minFeature: 1.6 } };
 }
 
 // Mirrored left/right only, like a soft character: a body with ears and
-// feet melted on, sometimes with two eyes.
+// feet on, now and then with two eyes.
 function softMirror(rng) {
   const B = U * rng.float(1.1, 1.4);
   const balls = [[0, 0, B]];
-  const ears = [B * rng.float(0.45, 0.75), -B * rng.float(0.65, 0.9), B * rng.float(0.32, 0.5)];
+  const ears = [B * rng.float(0.45, 0.75), -B * rng.float(0.65, 0.85), B * rng.float(0.35, 0.5)];
   balls.push(ears, [-ears[0], ears[1], ears[2]]);
   if (rng.chance(0.75)) {
     const feet = rng.int(2, 3);
-    const span = B * rng.float(0.45, 0.75);
-    const size = B * rng.float(0.3, 0.45);
-    const drop = B * rng.float(0.65, 0.85);
-    for (let i = 0; i < feet; i++) {
-      const x = feet === 1 ? 0 : -span + (2 * span * i) / (feet - 1);
-      balls.push([x, drop, size]);
-    }
+    const span = B * rng.float(0.45, 0.7);
+    const size = B * rng.float(0.32, 0.45);
+    const drop = B * rng.float(0.62, 0.8);
+    for (let i = 0; i < feet; i++) balls.push([-span + (2 * span * i) / (feet - 1), drop, size]);
   }
-  if (rng.chance(0.4)) {
-    const cheek = [B * rng.float(0.75, 0.95), B * rng.float(-0.1, 0.25), B * rng.float(0.3, 0.42)];
-    balls.push(cheek, [-cheek[0], cheek[1], cheek[2]]);
-  }
-  let item = melt(balls, 0.42 * rng.float(0.85, 1.1));
+  let item = blob(balls, U * rng.float(0.35, 0.8));
   if (!item) return null;
-  if (rng.chance(0.3)) {
+  if (rng.chance(0.2)) {
     const { center, width, height } = item.bounds;
     const ex = width * rng.float(0.12, 0.18);
-    const ey = center.y - height * rng.float(-0.02, 0.1);
-    const eyes = [-1, 1].map((side) => ellipse(center.x + side * ex, ey, width * rng.float(0.035, 0.055), height * rng.float(0.075, 0.11)));
-    const cut = subtract(item, ...eyes);
-    if (cut && clearance(unite(eyes), item) > U * 0.3) item = cut;
+    const eyes = [-1, 1].map((side) => ellipse(center.x + side * ex, center.y, width * 0.045, height * 0.095));
+    item = subtract(item, ...eyes);
   }
-  return { item, symmetry: 'D1', limits: { minFeature: 1.6, ...sd.TRACED } };
+  return { item, symmetry: 'D1', limits: { minFeature: 1.6 } };
 }
 
-// Two unequal balls melted along a line: mirrored only across that line.
+// Two unequal circles joined by a filleted neck: mirrored only along that line.
 function softDuo(rng) {
   const r1 = U * rng.float(0.65, 0.9);
   const r2 = r1 * rng.float(1.2, 1.7);
-  const gap = (r1 + r2) * rng.float(0.95, 1.25);
-  const balls = [[-gap * (r2 / (r1 + r2)), 0, r1], [gap * (r1 / (r1 + r2)), 0, r2]];
-  if (rng.chance(0.3)) balls.push([balls[1][0] + r2 * rng.float(1.1, 1.5), 0, r1 * rng.float(0.5, 0.75)]);
-  const item = melt(balls, 0.42 * rng.float(0.85, 1.15));
+  const dist = (r1 + r2) * rng.float(1, 1.3);
+  const x1 = -dist * (r2 / (r1 + r2));
+  const x2 = dist * (r1 / (r1 + r2));
+  const neck = capsule(x1, 0, x2, 0, r1 * rng.float(0.35, 0.6));
+  const item = blob([[x1, 0, r1], [x2, 0, r2]], U * rng.float(0.6, 1.4), [neck]);
   if (!item) return null;
   const turn = rng.pick([0, 90, 45]);
   item.rotate(turn, ORIGIN);
-  return { item, symmetry: 'D1', axis: turn + 90, limits: { minFeature: 1.6, ...sd.TRACED } };
+  return { item, symmetry: 'D1', axis: turn + 90, limits: { minFeature: 1.6 } };
 }
 
 function soft(rng) {
@@ -738,69 +716,78 @@ function split(rng) {
 }
 
 // ----------------------------------------------------------------- stroke
-// Monoline strokes with round caps: bends instead of corners, melted joins.
+// Monoline strokes with round caps: straight runs, circular bends, filleted
+// joins.
 
 function stroke(rng, opts = {}) {
-  const presets = [['pair', 3], ['gooey', 2.5], ['loops', 2], ['turbine', 1.5]];
-  if (opts.loose) presets.push(['splat', 4]);
+  const presets = [['gooey', 3], ['loops', 2], ['turbine', 1.5], ['pair', 1]];
+  if (opts.loose) presets.push(['splat', 3]);
   const preset = rng.weighted(presets);
   const L = U * 2;
-  let f;
+  let item;
   let symmetry;
-  let limits = { minFeature: 1.2, ...sd.TRACED };
+  let limits = { minFeature: 1.2, minAspect: 0.5 };
+  const copies = (piece, n) => Array.from({ length: n }, (_, i) => place(piece.clone({ insert: false }), 0, 0, (360 * i) / n));
 
-  if (preset === 'pair') {
-    // a flat tail that bends up into a long slant, paired with its 180° turn
-    const r = U * rng.float(0.11, 0.17);
-    const a = (rng.float(55, 70) * Math.PI) / 180;
-    const slant = L * rng.float(1.1, 1.5);
-    const tail = L * rng.float(0.5, 0.85);
-    const lift = slant * Math.sin(a) * rng.float(0.2, 0.42);
-    // place the corner so the two slants run parallel, a set distance apart
-    const apart = r * rng.float(3.5, 5.5);
-    const corner = [-(apart / 2 + lift * Math.cos(a)) / Math.sin(a), lift];
-    const end = [corner[0] + Math.cos(a) * slant, corner[1] - Math.sin(a) * slant];
-    const bent = sd.path([[corner[0] - tail, corner[1]], corner, end], r * rng.float(2, 5), r);
-    const mirrored = rng.chance(0.2);
-    f = sd.union(bent, mirrored ? (x, y) => bent(-x, y) : sd.move(bent, 0, 0, 180));
-    symmetry = mirrored ? 'D1' : 'C2';
-  } else if (preset === 'gooey') {
-    const r = U * rng.float(0.17, 0.27);
+  if (preset === 'gooey') {
+    const r = U * rng.float(0.18, 0.28);
     const n = rng.weighted([[3, 1], [4, 1.2], [5, 1.5], [6, 2], [8, 1.5]]);
     const short = n % 2 === 0 && rng.chance(0.35) ? rng.float(0.5, 0.75) : 1;
     const arms = Array.from({ length: n }, (_, i) => {
       const s = i % 2 ? short : 1;
       // four arms always sit as an X: an upright plus reads as a medical cross
-      return sd.move(sd.capsule(0, 0, L * s, 0, r * (s < 1 ? 0.85 : 1)), 0, 0, (360 * i) / n - (n === 4 ? 45 : 90));
+      return place(capsule(0, 0, L * s, 0, r * (s < 1 ? 0.85 : 1)), 0, 0, (360 * i) / n - (n === 4 ? 45 : 90));
     });
-    f = sd.blend(r * rng.float(0.9, 2.2), sd.circle(r * rng.float(1.4, 2.6)), ...arms);
+    item = roundCorners(unite(circle(0, 0, r * rng.float(1.4, 2.6)), ...arms), r * rng.float(0.5, 1.4));
     symmetry = short < 1 ? `D${n / 2}` : `D${n}`;
+  } else if (preset === 'pair') {
+    // a flat tail that bends round into a slant, paired with its 180° turn
+    const r = U * rng.float(0.2, 0.28);
+    const aDeg = rng.float(50, 68);
+    const a = (aDeg * Math.PI) / 180;
+    const slant = L * rng.float(0.8, 1.05);
+    const tail = L * rng.float(0.35, 0.6);
+    const bend = r * rng.float(1.5, 3.5);
+    const lift = slant * Math.sin(a) * rng.float(0.2, 0.4);
+    const apart = r * rng.float(3.5, 5);
+    const corner = [-(apart / 2 + lift * Math.cos(a)) / Math.sin(a), lift];
+    const t = bend * Math.tan(a / 2);
+    const t1 = [corner[0] - t, corner[1]];
+    const t2 = [corner[0] + Math.cos(a) * t, corner[1] - Math.sin(a) * t];
+    const end = [corner[0] + Math.cos(a) * slant, corner[1] - Math.sin(a) * slant];
+    const piece = unite(
+      capsule(t1[0] - tail, t1[1], t1[0], t1[1], r),
+      arcStroke(t1[0], t1[1] - bend, bend, 90 - aDeg, 90, r),
+      capsule(t2[0], t2[1], end[0], end[1], r),
+    );
+    const mirrored = rng.chance(0.2);
+    const other = piece.clone({ insert: false });
+    if (mirrored) other.scale(-1, 1, ORIGIN);
+    else other.rotate(180, ORIGIN);
+    item = unite(piece, other);
+    symmetry = mirrored ? 'D1' : 'C2';
   } else if (preset === 'loops') {
-    const r = U * rng.float(0.15, 0.24);
+    const r = U * rng.float(0.16, 0.24);
     const n = rng.weighted([[2, 2], [3, 2], [4, 1], [5, 0.8]]);
-    const R = L * rng.float(0.42, 0.62);
-    const off = L * rng.float(0.25, 0.5);
-    const span = (rng.float(140, 220) * Math.PI) / 180;
-    const a0 = rng.float(0, Math.PI * 2);
-    f = sd.spin(sd.arc(off, 0, R, a0, a0 + span, r), n, r * rng.float(0, 1.2));
+    const span = rng.float(140, 220);
+    const a0 = rng.float(0, 360);
+    item = unite(copies(arcStroke(L * rng.float(0.25, 0.5), 0, L * rng.float(0.42, 0.62), a0, a0 + span, r), n));
     symmetry = `C${n}`;
   } else if (preset === 'turbine') {
-    // arms that leave the hub and gently bend the same way; never four of them
-    const r = U * rng.float(0.14, 0.22);
+    // arcs that leave the centre and curl away; never four of them
+    const r = U * rng.float(0.15, 0.22);
     const n = rng.pick([3, 5, 6]);
-    const bendDeg = rng.float(18, 40) * rng.pick([1, -1]);
-    const inner = L * rng.float(0.15, 0.3);
-    const knee = L * rng.float(0.45, 0.6);
-    const b = (bendDeg * Math.PI) / 180;
-    const reach = L - knee;
-    const arm = sd.path([[inner, 0], [knee, 0], [knee + Math.cos(b) * reach, Math.sin(b) * reach]], r * rng.float(2, 4), r);
-    const hub = rng.chance(0.6) ? sd.circle(inner * rng.float(0.6, 1.1)) : null;
-    f = hub ? sd.blend(r * 1.2, hub, sd.spin(arm, n)) : sd.spin(arm, n);
+    const sweep = rng.float(60, 120);
+    const rho = L * rng.float(0.45, 0.6);
+    const arm = rng.chance(0.5) ? arcStroke(rho, 0, rho, 180, 180 + sweep, r) : arcStroke(rho, 0, rho, 180 - sweep, 180, r);
+    const parts = copies(arm, n);
+    if (rng.chance(0.6)) parts.push(circle(0, 0, r * rng.float(1.6, 2.6)));
+    item = roundCorners(unite(parts), r * rng.float(0.5, 1.2));
     symmetry = `C${n}`;
   } else {
-    // splat: slightly bent arms of different lengths around a core; balanced, not symmetric
-    const r = U * rng.float(0.13, 0.22);
-    const m = rng.int(5, 9);
+    // splat: arms of different lengths around a core; balanced, not symmetric
+    const r = U * rng.float(0.15, 0.22);
+    const m = rng.int(5, 8);
     let angles;
     for (let tries = 0; tries < 30; tries++) {
       angles = Array.from({ length: m }, () => rng.float(0, 360)).sort((p, q) => p - q);
@@ -809,81 +796,58 @@ function stroke(rng, opts = {}) {
       angles = null;
     }
     if (!angles) return null;
-    const arms = angles.map((deg) => {
-      const len = L * rng.float(0.55, 1.05);
-      const kink = (rng.float(-18, 18) * Math.PI) / 180;
-      const knee = len * rng.float(0.4, 0.65);
-      const arm = sd.path([[0, 0], [knee, 0], [knee + Math.cos(kink) * (len - knee), Math.sin(kink) * (len - knee)]], r * 3, r * rng.float(0.8, 1.1));
-      return sd.move(arm, 0, 0, deg);
-    });
-    f = sd.blend(r * rng.float(1.2, 2.4), sd.circle(r * rng.float(1.4, 2.2)), ...arms);
+    const arms = angles.map((deg) => place(capsule(0, 0, L * rng.float(0.55, 1.05), 0, r * rng.float(0.85, 1.1)), 0, 0, deg));
+    item = roundCorners(unite(circle(0, 0, r * rng.float(1.5, 2.3)), ...arms), r * rng.float(0.6, 1.5));
     symmetry = 'C1';
     limits = { ...limits, balance: 0.07 };
   }
-  const item = sd.trace(f);
-  return item && { item, symmetry, limits };
+  return { item, symmetry, limits };
 }
 
 // ----------------------------------------------------------------- sector
-// A ring or polygon cut into radial pieces: apertures with curved cuts, twisted
-// kites around a starburst, hooked pinwheels.
+// A ring or polygon cut into radial pieces: twisted kites around a starburst,
+// hooked pinwheels, plain wheels.
 
 function sector(rng) {
-  const style = rng.weighted([['kites', 3], ['hooks', 2], ['aperture', 1], ['wheel', 0.6]]);
+  const style = rng.weighted([['kites', 3], ['hooks', 2], ['wheel', 0.8]]);
   const n = style === 'kites' ? rng.weighted([[5, 3], [6, 2], [3, 1], [4, 0.4]]) : rng.weighted([[3, 1], [4, 1.4], [5, 2], [6, 2], [7, 0.8]]);
   const R = U * 2;
-  const span = (2 * Math.PI) / n;
+  const span = 360 / n;
   const gap = R * rng.float(0.06, 0.12);
-  const soft = R * rng.float(0.02, 0.07);
-  let f;
+  const cut = wedge(-span / 2, span / 2, R, gap);
+  let piece;
   let chiral = false;
 
-  if (style === 'aperture' || style === 'hooks' || style === 'wheel') {
-    const inner = R * rng.float(0.2, 0.5);
-    // cuts follow a curve: the cut angle drifts as the radius grows
-    const swirl = style === 'aperture' ? rng.float(0.35, 0.9) * span * rng.pick([1, -1]) : 0;
-    const cuts = (x, y) => {
-      const r = Math.hypot(x, y);
-      const t = (r - inner) / (R - inner);
-      const a = Math.atan2(y, x) - swirl * t + span / 2;
-      const d = a - span * Math.floor(a / span) - span / 2;
-      // distance (in length) to the nearest cut line, negative inside a cut
-      return Math.abs(span / 2 - Math.abs(d)) * r - gap / 2;
-    };
-    let piece = sd.cut(sd.annulus(inner, R), cuts, soft);
+  if (style === 'kites') {
+    // a polygon whose corners sit on the cuts, each piece turned a little
+    const outline = polygon(Array.from({ length: n }, (_, k) => [Math.cos(((k + 0.5) * span * Math.PI) / 180) * R, Math.sin(((k + 0.5) * span * Math.PI) / 180) * R]));
+    piece = intersect(subtract(outline, circle(0, 0, R * rng.float(0.08, 0.2))), cut);
+    piece.rotate(rng.float(4, 10) * rng.pick([1, -1]), piece.bounds.center);
+    chiral = true;
+  } else {
+    const inner = R * rng.float(0.25, 0.5);
+    piece = intersect(annulus(inner, R), cut);
     if (style === 'hooks') {
       const mid = (inner + R) / 2;
-      const notch = ((R - inner) / 2) * rng.float(0.38, 0.55);
-      const notches = Array.from({ length: n }, (_, i) => {
-        const at = (i + 0.5) * span - gap / mid;
-        return sd.circle(notch, Math.cos(at) * mid, Math.sin(at) * mid);
-      });
-      piece = sd.cut(piece, sd.union(...notches), soft);
+      const at = ((span / 2) * Math.PI) / 180 - gap / mid;
+      piece = subtract(piece, circle(Math.cos(at) * mid, Math.sin(at) * mid, ((R - inner) / 2) * rng.float(0.38, 0.55)));
+      chiral = true;
     }
-    f = piece;
-    chiral = style !== 'wheel';
-  } else {
-    // kites: a polygon split from the middle of each edge, each piece turned a little
-    const inner = R * rng.float(0.08, 0.2);
-    const pts = Array.from({ length: n }, (_, i) => [Math.cos((i + 0.5) * span) * R, Math.sin((i + 0.5) * span) * R]);
-    const wedge = sd.wedge(-span / 2, span / 2);
-    let piece = sd.clip(sd.cut(sd.polygon(pts), sd.circle(inner)), (x, y) => wedge(x, y) + gap / 2, soft * 0.4);
-    const twist = rng.float(4, 10) * rng.pick([1, -1]);
-    const mid = R * 0.5;
-    piece = sd.move(sd.move(piece, -mid, 0), mid, 0, twist);
-    f = sd.spin(piece, n);
-    if (rng.chance(0.7)) {
-      const tips = [];
-      for (let i = 0; i < n; i++) {
-        tips.push([Math.cos((i + 0.5) * span) * R * 0.8, Math.sin((i + 0.5) * span) * R * 0.8]);
-        tips.push([Math.cos((i + 1) * span) * R * 0.2, Math.sin((i + 1) * span) * R * 0.2]);
-      }
-      f = sd.cut(f, sd.polygon(tips), soft * 0.3);
-    }
-    chiral = true;
   }
-  const item = sd.trace(sd.move(f, 0, 0, -90));
-  return item && { item, symmetry: `${chiral ? 'C' : 'D'}${n}`, limits: { tips: 0.6, ...sd.TRACED } };
+  let item = unite(Array.from({ length: n }, (_, k) => place(piece.clone({ insert: false }), 0, 0, k * span)));
+  if (style === 'kites' && rng.chance(0.7)) {
+    // a starburst opening: points reaching out along the cuts
+    const tips = [];
+    for (let k = 0; k < n; k++) {
+      const out = (((k + 0.5) * span) * Math.PI) / 180;
+      const back = (((k + 1) * span) * Math.PI) / 180;
+      tips.push([Math.cos(out) * R * 0.8, Math.sin(out) * R * 0.8], [Math.cos(back) * R * 0.2, Math.sin(back) * R * 0.2]);
+    }
+    item = subtract(item, polygon(tips));
+  }
+  item = roundCorners(item, U * rng.float(0.05, 0.16));
+  item.rotate(-90, ORIGIN);
+  return { item, symmetry: `${chiral ? 'C' : 'D'}${n}`, limits: { tips: 0.6 } };
 }
 
 // ------------------------------------------------------------------- arch
@@ -895,26 +859,23 @@ function arch(rng) {
   const b = U * rng.float(1.1, 1.6);
   const step = 2 * a * rng.float(0.6, 0.85);
   const lift = rng.float(1, 1.25);
-  let f = null;
-  for (let i = 0; i < k; i++) {
-    const inside = i > 0 && i < k - 1;
-    const oval = sd.ellipse(a, inside ? b * lift : b, (i - (k - 1) / 2) * step, 0);
-    f = f ? sd.xor(f, oval) : oval;
-  }
-  const soft = U * rng.float(0.05, 0.12);
-  const split = rng.chance(0.7);
+  const ovals = Array.from({ length: k }, (_, i) => ellipse((i - (k - 1) / 2) * step, 0, a, i > 0 && i < k - 1 ? b * lift : b));
+  let item = xor(ovals);
   let symmetry = 'D2';
-  if (split) {
+  if (rng.chance(0.7)) {
     const gap = U * rng.float(0.16, 0.32);
-    const top = sd.clip(f, (x, y) => y + gap / 2, soft);
-    const bottom = sd.clip(f, (x, y) => gap / 2 - y, soft);
-    const shift = rng.chance(0.25) ? step / 2 : 0;
-    f = sd.union(top, sd.move(bottom, shift, 0));
-    if (shift) symmetry = 'C2';
+    const big = U * 8;
+    const top = intersect(item, rect(0, -gap / 2 - big / 2, big, big));
+    const bottom = intersect(item, rect(0, gap / 2 + big / 2, big, big));
+    if (rng.chance(0.25)) {
+      bottom.translate([step / 2, 0]);
+      symmetry = 'C2';
+    }
+    item = unite(top, bottom);
   }
-  const turn = rng.chance(0.3) ? 90 : 0;
-  const item = sd.trace(sd.move(f, 0, 0, turn));
-  return item && { item, symmetry, limits: { tips: 0.5, ...sd.TRACED } };
+  item = roundCorners(item, U * rng.float(0.1, 0.28));
+  if (rng.chance(0.3)) item.rotate(90, ORIGIN);
+  return { item, symmetry, limits: { tips: 0.5 } };
 }
 
 // ------------------------------------------------------------------- dash
@@ -936,87 +897,13 @@ function dash(rng) {
   return { item: compound(dots), symmetry, limits: { freePieces: 13 } };
 }
 
-// -------------------------------------------------------------------- fan
-// Tapered rays that shrink as they sweep around: balanced, not symmetric.
-
-function fan(rng) {
-  const m = rng.int(5, 8);
-  const L = U * 2.2;
-  const sweep = rng.float(200, 290);
-  const start = rng.float(0, 360);
-  const gamma = rng.float(0.75, 1.3);
-  const drop = rng.float(0.35, 0.65);
-  const wide = U * rng.float(0.55, 0.85);
-  const taper = rng.float(0.25, 0.6);
-  const soft = U * rng.float(0.06, 0.14);
-
-  const rays = Array.from({ length: m }, (_, i) => {
-    const t = i / (m - 1);
-    const s = 1 - drop * t;
-    return { angle: start + sweep * t ** gamma, len: L * s, outer: wide * s, inner: wide * s * taper };
-  });
-  // push the rays' feet out far enough that neighbours never touch
-  let foot = L * rng.float(0.12, 0.2);
-  for (let i = 1; i < m; i++) {
-    const apart = ((rays[i].angle - rays[i - 1].angle) * Math.PI) / 180;
-    foot = Math.max(foot, ((rays[i].inner + rays[i - 1].inner) / 2 + U * 0.12) / apart);
-  }
-  if (foot > L * 0.5) return null;
-
-  const cutAt = L * rng.float(0.42, 0.52);
-  const cutWidth = U * rng.float(0.14, 0.22);
-  const arcCut = rng.chance(0.35) ? sd.annulus(cutAt, cutAt + cutWidth) : null;
-  const shapes = rays.map(({ angle, len, outer, inner }, i) => {
-    const ray = sd.grow(sd.polygon([[foot, -inner / 2], [len, -outer / 2], [len, outer / 2], [foot, inner / 2]]), soft);
-    const reaches = len > cutAt + cutWidth + U * 0.5 && cutAt - foot > U * 0.5;
-    const cutRay = arcCut && i >= m / 2 && reaches ? sd.cut(ray, arcCut, soft) : ray;
-    return sd.move(cutRay, 0, 0, angle);
-  });
-  const item = sd.trace(sd.union(...shapes));
-  return item && { item, symmetry: 'C1', limits: { balance: 0.1, tips: 0.6, ...sd.TRACED } };
-}
-
-// ------------------------------------------------------------------ glyph
-// A blocky figure: a wide slab, two splayed legs and a head, softly rounded.
-// Loose mode tips the head and arms so it stops being mirrored but stays balanced.
-
-function glyph(rng, opts = {}) {
-  const tilt = opts.loose && rng.chance(0.6);
-  const w = U * rng.float(1.9, 2.4);
-  const slab = U * rng.float(0.65, 0.95);
-  const droop = slab * rng.float(0, 0.35);
-  const slabY = -U * rng.float(0.1, 0.5);
-  const legTop = U * rng.float(0.35, 0.55);
-  const legFoot = U * rng.float(0.55, 1.05);
-  const leg = U * rng.float(0.5, 0.75);
-  const legDrop = U * rng.float(1.3, 1.8);
-  const head = [U * rng.float(0.55, 0.85), U * rng.float(0.65, 1)];
-  const soft = U * rng.float(0.05, 0.12);
-  const lean = tilt ? rng.float(6, 16) * rng.pick([1, -1]) : 0;
-  const shift = tilt ? U * rng.float(0.1, 0.35) * Math.sign(lean) : 0;
-
-  const arms = sd.polygon([[-w, slabY - slab / 2 + droop * 0.4], [w, slabY - slab / 2 + (tilt ? -droop * 0.3 : droop * 0.4)], [w, slabY + slab / 2 + droop], [-w, slabY + slab / 2 + droop]]);
-  const legs = [-1, 1].map((side) =>
-    sd.polygon([
-      [side * legTop - leg / 2, slabY], [side * legTop + leg / 2, slabY],
-      [side * legFoot + leg / 2, slabY + slab / 2 + legDrop], [side * legFoot - leg / 2, slabY + slab / 2 + legDrop],
-    ]),
-  );
-  const headShape = sd.move(sd.polygon([[-head[0] / 2, 0], [head[0] / 2, 0], [head[0] / 2, -head[1]], [-head[0] / 2, -head[1]]]), shift, slabY - slab / 2 + soft, lean);
-  // a notch between the legs keeps them reading as two
-  const f = sd.grow(sd.blend(soft * 2, arms, ...legs, headShape), soft);
-  const item = sd.trace(f);
-  const limits = { ...sd.TRACED, ...(tilt ? { balance: 0.08 } : {}) };
-  return item && { item, symmetry: tilt ? 'C1' : 'D1', limits };
-}
-
 // `loose` families only appear when asymmetric marks are allowed.
 export const FAMILIES = {
   carve: { build: carve, weight: 14 },
-  pair: { build: pair, weight: 10 },
-  block: { build: block, weight: 2 },
+  pair: { build: pair, weight: 7 },
+  block: { build: block, weight: 1 },
   tetro: { build: tetro, weight: 5 },
-  cloud: { build: cloud, weight: 4 },
+  cloud: { build: cloud, weight: 2 },
   soft: { build: soft, weight: 7 },
   stroke: { build: stroke, weight: 6 },
   dash: { build: dash, weight: 5 },
@@ -1030,11 +917,9 @@ export const FAMILIES = {
   bloom: { build: bloom, weight: 2 },
   orbit: { build: orbitFamily, weight: 1.5 },
   stripe: { build: stripe, weight: 1.5 },
-  glyph: { build: glyph, weight: 1 },
   lattice: { build: lattice, weight: 1 },
   tiles: { build: tiles, weight: 1 },
   spark: { build: spark, weight: 1 },
   pixel: { build: pixel, weight: 1 },
   field: { build: field, weight: 0.5 },
-  fan: { build: fan, weight: 2, loose: true },
 };
