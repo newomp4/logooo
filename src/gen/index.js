@@ -24,7 +24,7 @@ export function generate(seed, family = 'all', { loose = false } = {}) {
   const want = FAMILIES[name].pick ?? 1;
   const found = [];
   // families with a plan settle it once per mark (a fresh plan only if one fails)
-  for (let round = 0; round < 3 && !found.length; round++) {
+  for (let round = 0; round < 5 && !found.length; round++) {
     const plan = FAMILIES[name].plan?.(rng, { loose });
     for (let attempt = 0; attempt < 50 && found.length < want; attempt++) {
       try {

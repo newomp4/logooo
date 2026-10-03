@@ -49,8 +49,8 @@ function primitive(rng, size, kind) {
     item = roundedPolygon(ring(n, size * 0.55, rng.pick([0, 180 / n])), size * rng.float(0.08, 0.18));
   } else if (kind === 'arc') {
     const r = size * rng.float(0.45, 0.7);
-    const t = size * rng.float(0.13, 0.2);
-    const span = rng.float(80, 170);
+    const t = size * rng.float(0.15, 0.22);
+    const span = rng.float(120, 200);
     const a0 = -90 - span / 2;
     item = rng.chance(0.6) ? arcStroke(0, 0, r, a0, a0 + span, t) : intersect(annulus(r - t, r + t), wedge(a0, a0 + span, r * 2));
   } else if (kind === 'quarter') {
@@ -70,35 +70,25 @@ function motif(rng, family) {
   const straight = family === 'block' || family === 'poly';
   const size = () => Math.max(item.bounds.width, item.bounds.height);
   // single primitives can't take a twin or a slice without falling apart
-  const steps = family === 'poly' || family === 'leaf' ? 0 : rng.weighted([[0, 3], [1, 2.2], [2, 0.5]]);
+  // off-centre slices and chamfers left half-ovals, D shapes and Pac-Man
+  // notches; the only motif moves now are an exact twin and a centred hole
+  // (purposeful cuts happen once, on the whole mark, in finish())
+  // twin discs make figure-8s, which came up far too often
+  const steps = family === 'poly' || family === 'leaf' ? 0 : rng.weighted(family === 'round' ? [[0, 3], [1, 1]] : [[0, 3], [1, 2.4]]);
   for (let i = 0; i < steps; i++) {
-    const op = rng.weighted([['twin', 3], ['bevel', family === 'block' ? 1.5 : 0], ['slice', 1.2], ['hole', 0.8]]);
+    const op = rng.weighted([['twin', 3], ['hole', 0.8]]);
     if (op === 'twin') {
-      // a second piece of the same family and nearly the same size, sunk well in
+      // an exact copy of the base, turned or not, sunk well into its edge
       const spot = edgePoint(item, rng);
       if (!spot) break;
-      const add = primitive(rng, S * rng.float(0.7, 1), rng.pick(kinds));
+      const add = item.clone({ insert: false });
+      add.translate(add.bounds.center.multiply(-1));
       const reach = Math.max(add.bounds.width, add.bounds.height) / 2;
-      add.rotate(spot.angle + rng.pick([0, 90]), ORIGIN);
-      add.translate(spot.p.add(spot.n.multiply(-reach * rng.float(0.35, 0.65))));
+      add.rotate(rng.pick([0, 90, 180]), ORIGIN);
+      add.translate(spot.p.add(spot.n.multiply(-reach * rng.float(0.35, 0.6))));
       item = unite(item, add);
-    } else if (op === 'bevel') {
-      // a corner chamfered off at 45°
-      const c = item.bounds.center;
-      const corner = rng.pick([item.bounds.topLeft, item.bounds.topRight, item.bounds.bottomLeft, item.bounds.bottomRight]);
-      const dir = corner.subtract(c).normalize();
-      const cut = rect(0, 0, size() * 2, size() * 2);
-      cut.rotate(dir.angle + 45, ORIGIN);
-      cut.translate(corner.add(dir.multiply(size() * (1 - rng.float(0.12, 0.25)))));
-      item = subtract(item, cut);
-    } else if (op === 'slice') {
-      // a straight gap across the motif
-      const band = rect(0, 0, size() * 3, size() * rng.float(0.08, 0.13));
-      band.rotate(rng.pick([0, 45, 90, 135]), ORIGIN);
-      band.translate(item.bounds.center);
-      item = subtract(item, band);
     } else {
-      const hole = primitive(rng, size() * rng.float(0.45, 0.6), rng.pick(kinds));
+      const hole = primitive(rng, size() * rng.float(0.45, 0.6), firstKind);
       hole.translate(item.bounds.center);
       const corners = [hole.bounds.topLeft, hole.bounds.topRight, hole.bounds.bottomLeft, hole.bounds.bottomRight];
       if (corners.every((pt) => item.contains(pt))) item = subtract(item, hole);
@@ -113,10 +103,10 @@ function motif(rng, family) {
 // per attempt, the arrangements that pass the checks most easily (rings of
 // separate pieces) would win by attrition and crowd everything else out.
 export function formPlan(rng, opts = {}) {
-  const mode = rng.weighted([['spin', 2.2], ['dihedral', 1.4], ['turn', 3.2], ['mirror', 3], ['alone', opts.loose ? 1.2 : 0.4]]);
+  const mode = rng.weighted([['spin', 1.6], ['dihedral', 1], ['turn', 3.2], ['mirror', 3], ['alone', opts.loose ? 1.2 : 0.4]]);
   // the motif's geometry family too: arc bands pass the checks most easily and
   // would otherwise take over
-  const family = rng.weighted([['block', 3], ['round', 3], ['band', 1.2], ['poly', 0.8], ['quarter', 0.6], ['leaf', 0.4]]);
+  const family = rng.weighted([['block', 3], ['round', 2.2], ['band', 0.6], ['poly', 0.8], ['quarter', 0.6], ['leaf', 0.4]]);
   // threes are easy to overdo (tri-tipped marks everywhere), so they stay modest
   const n =
     mode === 'spin' ? rng.weighted([[3, 0.4], [4, 2], [5, 0.6], [6, 0.8], [8, 0.2]])
@@ -190,7 +180,8 @@ function finish(rng, arr) {
     item = intersect(item, circle(0, 0, reach * rng.float(0.78, 0.94)));
   } else if (op === 'open' && item.contains(ORIGIN)) {
     item = subtract(item, circle(0, 0, reach * rng.float(0.16, 0.3)));
-  } else if (op === 'slit') {
+  } else if (op === 'slit' && (item.children?.filter((c) => c.area > 0).length ?? 1) === 1) {
+    // only through one solid shape: slitting separate pieces leaves half-ovals
     item = subtract(item, rect(0, 0, reach * 4, reach * rng.float(0.08, 0.14)));
   }
   return item;

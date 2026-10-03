@@ -792,7 +792,8 @@ function stroke(rng, opts = {}) {
 
 function sector(rng) {
   const style = rng.weighted([['kites', 3], ['hooks', 2], ['wheel', 0.8]]);
-  const n = style === 'kites' ? rng.weighted([[5, 3], [6, 2], [3, 1], [4, 0.4]]) : rng.weighted([[3, 1], [4, 1.4], [5, 2], [6, 2], [7, 0.8]]);
+  // three hooked pieces read as jigsaw puzzle, so hooks start at four
+  const n = style === 'kites' ? rng.weighted([[5, 3], [6, 2], [3, 1], [4, 0.4]]) : rng.weighted([[3, style === 'hooks' ? 0 : 1], [4, 1.4], [5, 2], [6, 2], [7, 0.8]]);
   const R = U * 2;
   const span = 360 / n;
   const gap = R * rng.float(0.06, 0.12);
@@ -893,7 +894,7 @@ export const FAMILIES = {
   arch: { build: arch, weight: 4 },
   petal: { build: petal, weight: 4 },
   spoke: { build: spoke, weight: 4 },
-  sector: { build: sector, weight: 3 },
+  sector: { build: sector, weight: 1.5 },
   split: { build: split, weight: 3 },
   badge: { build: badge, weight: 2 },
   ring: { build: band, weight: 2 },
