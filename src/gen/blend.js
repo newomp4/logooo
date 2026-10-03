@@ -14,7 +14,7 @@
 // crossed: a slot (with its ranges) moves across from the other recipe, and
 // when both use the same kind of part their numbers are blended. So new
 // marks land on and between the references, never far from them.
-import { ORIGIN, circle, ellipse, rect, quad, roundedPolygon, ring, unite, subtract, intersect, xor } from './geom.js';
+import { ORIGIN, Point, circle, ellipse, rect, quad, roundedPolygon, ring, unite, subtract, intersect, xor } from './geom.js';
 import { capsule, band, arcBand, polygon, wedge, roundCorners } from './shapes.js';
 
 const S = 20;
@@ -164,6 +164,79 @@ export const ANCHORS = {
     round: 0.04,
     vary: { piece: { w: span(0.7, 0.95), h: span(0.8, 1.2), t: span(0.14, 0.19) }, layout: { stack: span(0.4, 0.7), shift: span(0.22, 0.35) } },
   },
+  // a disc cut by tilted slits that each end in a round keyhole, so the
+  // pieces between them curl round
+  keyhole: {
+    container: { kind: 'scallop' },
+    cut: { kind: 'keyholes', n: 5, tilt: 30, depth: 0.42, g: 0.085, hole: 0.15 },
+    round: 0.05,
+    vary: {
+      container: { kind: ['scallop', 'scallop', 'circle', 'squircle'] },
+      cut: { n: [5, 6], tilt: [span(18, 35), span(18, 35), 0], depth: span(0.35, 0.5), g: span(0.075, 0.1), hole: span(0.13, 0.18) },
+      round: span(0.04, 0.06),
+    },
+  },
+  // tapered rays fanning out round an empty middle, long and short by turns
+  burst: {
+    piece: { kind: 'ray', inner: 0.26, len: 0.74, fill: 0.78 },
+    layout: { mode: 'ring', n: 8, alt: 0.62 },
+    round: 0.04,
+    vary: { piece: { inner: span(0.2, 0.32), fill: span(0.65, 0.85) }, layout: { n: [6, 8, 8], alt: [1, span(0.55, 0.75), span(0.55, 0.75)] } },
+  },
+  // round-ended arms melted into a hub, like a splash
+  splat: {
+    piece: { kind: 'arm', len: 0.9, t: 0.16, hub: 0.36 },
+    layout: { mode: 'ring', n: 6, alt: 0.62 },
+    melt: 0.09,
+    round: 0.02,
+    vary: { piece: { t: span(0.14, 0.2), hub: span(0.3, 0.42) }, layout: { n: [5, 6, 6, 7], alt: [1, span(0.55, 0.72), span(0.55, 0.72)], offset: [0, 'half'] }, melt: span(0.07, 0.13) },
+  },
+  // thick bands bent through a quarter turn, flat-ended, sometimes with a block alongside
+  elbow: {
+    piece: { kind: 'elbow', t: 0.22, r: 2, e0: 0.8, e2: 0.3, block: 1 },
+    layout: { mode: 'pair', stack: 1.15, shift: 0.12 },
+    round: 0.02,
+    vary: {
+      piece: { t: span(0.18, 0.26), r: span(1.4, 2.6), e0: span(0.2, 1.4), e2: span(0, 1), block: [0, 1, 1] },
+      layout: [
+        { mode: 'pair', stack: span(1.08, 1.25), shift: span(0, 0.25) },
+        { mode: 'quad', gap: span(0.08, 0.14) },
+        { mode: 'mirror', gap: span(0.1, 0.2) },
+      ],
+    },
+  },
+  // a leaning slab and a block, a deep rounded arch between them
+  ramp: {
+    piece: { kind: 'ramp', lean: 0.4, slab: 0.24, step: 0.38, crotch: 0.6, notch: 0.12 },
+    layout: { mode: 'pair', stack: 1.12, shift: 0 },
+    round: 0.02,
+    vary: {
+      piece: { lean: span(0.32, 0.45), slab: span(0.22, 0.32), step: span(0.3, 0.45), crotch: span(0.58, 0.72), notch: span(0.08, 0.14) },
+      layout: { stack: span(1.06, 1.2), shift: span(-0.1, 0.1) },
+    },
+  },
+  // a frame whose inside is crossed by a bent bar as thick as its walls
+  frame: {
+    container: { kind: 'hex' },
+    cut: { kind: 'frame', wall: 0.2, lift: 0.22, run: 0.18 },
+    round: 0.03,
+    vary: { container: { kind: ['hex', 'hex', 'squircle', 'circle', 'square'] }, cut: { wall: span(0.16, 0.24), lift: span(0.1, 0.32), run: span(0.05, 0.3) } },
+  },
+  // two lobes joined by a smooth waist
+  duo: {
+    piece: { kind: 'duo', a: 0.36, b: 0.5, apart: 1.15, neck: 0.36 },
+    layout: { mode: 'single' },
+    melt: 0.16,
+    round: 0.02,
+    vary: { piece: { a: span(0.3, 0.48), b: span(0.42, 0.55), apart: span(1.05, 1.3), neck: span(0.28, 0.42) }, melt: span(0.12, 0.2) },
+  },
+  // slanted strokes with a tail branching off, the pair turned 180° about each other
+  branch: {
+    piece: { kind: 'branch', len: 1.5, angle: 62, t: 0.075, tail: 0.5, at: 0.28, apart: 0.4 },
+    layout: { mode: 'pair' },
+    round: 0.02,
+    vary: { piece: { len: span(1.3, 1.7), angle: span(55, 70), t: span(0.065, 0.09), tail: span(0.35, 0.6), at: span(0.2, 0.4), apart: span(0.3, 0.5) } },
+  },
   // a solid shape with a window in the middle and a dot inside it
   window: {
     container: { kind: 'squircle' },
@@ -179,7 +252,7 @@ export const ANCHOR_NAMES = Object.keys(ANCHORS);
 // ------------------------------------------------------------- the parts
 
 // Pieces built in place, for a given count, rather than centred and moved.
-const FIXED = new Set(['kite', 'bend', 'arc']);
+const FIXED = new Set(['kite', 'bend', 'arc', 'ray', 'arm', 'branch']);
 const fixedPiece = (dna) => FIXED.has(dna.piece?.kind);
 
 // Layouts each kind of free piece reads well in. Lopsided pieces never go in
@@ -196,6 +269,11 @@ const FITS = {
   arch: ['pair'],
   disc: ['grid', 'ring', 'row'],
   block: ['grid'],
+  // these need the spacing their own recipes give them, so they only cross
+  // into layouts that keep pieces apart (or not at all)
+  elbow: ['quad'],
+  ramp: [],
+  duo: ['single'],
 };
 const fits = (piece, layout) => FITS[piece.kind]?.includes(layout.mode);
 // Pieces with a single mirror axis: in a ring that axis has to point along the
@@ -267,6 +345,61 @@ function makePiece(p, n) {
       const half = span / 2 - ((p.t * S + (p.gap * S) / 2) / R) * (180 / Math.PI);
       return arcBand(R, -half, half, p.t * S);
     }
+    case 'ray': {
+      // a tapered wedge from `inner` out along +x: narrow and round inside,
+      // wide with softened corners outside, filling `fill` of its share of
+      // the ring at both ends
+      const r0 = p.inner * S;
+      const r1 = (p.inner + p.len) * S;
+      const a = Math.max(r0 * Math.tan(Math.PI / n) * p.fill, S * 0.06);
+      const b = r1 * Math.tan(Math.PI / n) * p.fill;
+      return roundedPolygon([[r0, -a], [r1, -b], [r1, b], [r0, a]], (i) => (i === 0 || i === 3 ? a * 0.95 : b * 0.4));
+    }
+    case 'arm':
+      return capsule(0, 0, p.len * S, 0, p.t * S);
+    case 'elbow': {
+      // a thick band bent through a quarter turn, flat ends; `block` sets a
+      // square beside the start, on the outside of the bend, flush with its end
+      const w = p.t * S;
+      const r = p.r * w;
+      const end = r + p.e0 * w * 2;
+      const bent = band([[0, end], [0, 0], [r + p.e2 * w * 2, 0]], w, { radius: r, round: false });
+      return p.block ? unite(bent, rect(-1.8 * w, end - w, 2.4 * w, 2 * w)) : bent;
+    }
+    case 'ramp': {
+      // a slab leaning right, a block stepping down beside it, and a deep
+      // arch where the block's side meets the slab
+      const W = 1.25 * S;
+      const H = S;
+      const edge = (y) => (p.lean + p.slab) * W - p.lean * W * (y / H);
+      const yc = p.crotch * H;
+      const pts = [[0, H], [p.lean * W, 0], [(p.lean + p.slab) * W, 0], [edge(p.step * H), p.step * H], [W, p.step * H], [W, H], [edge(yc), H], [edge(yc), yc], [p.slab * W, H]];
+      return roundedPolygon(pts, (i) => (i === 7 ? p.notch * S : S * 0.04));
+    }
+    case 'duo': {
+      // two lobes joined by a waist; the lobes differ, so the mirror runs lengthwise
+      const a = p.a * S;
+      const b = p.b * S;
+      const d = (a + b) * 0.85 * p.apart;
+      const left = ellipse(-d / 2, 0, a * 0.85, a);
+      const right = ellipse(d / 2, 0, b * 0.85, b);
+      return unite(left, right, rect(0, 0, d, Math.min(a, b) * p.neck * 2));
+    }
+    case 'branch': {
+      // a slanted stroke with a tail branching off near its lower end, the
+      // junction filleted; set off so its 180° turn runs parallel, `apart` away
+      const a = rad(p.angle);
+      const t = p.t * S;
+      const dir = [Math.cos(a), -Math.sin(a)];
+      const len = p.len * S;
+      const mid = [-(p.apart * S) / Math.sin(a) / 2, 0];
+      const start = [mid[0] - (dir[0] * len) / 2, mid[1] - (dir[1] * len) / 2];
+      const end = [mid[0] + (dir[0] * len) / 2, mid[1] + (dir[1] * len) / 2];
+      const j = [start[0] + dir[0] * len * p.at, start[1] + dir[1] * len * p.at];
+      // the tail's flat end sits inside the slant, so no outlines coincide
+      const tail = band([[j[0] - p.tail * S, j[1]], j], t, { round: [true, false] });
+      return roundCorners(unite(band([start, end], t), tail), t * 1.8);
+    }
     case 'kite': {
       // one wedge of an n-gon whose corners sit on the cuts, turned a little
       const outline = polygon(ring(n, S, 90 + 180 / n));
@@ -322,7 +455,13 @@ function arrange(piece, dna) {
       }
     }
     const offset = L.offset === 'half' ? 180 / n : 0;
-    return Array.from({ length: n }, (_, k) => copy(base).rotate((360 * k) / n + offset - 90, ORIGIN));
+    // every other copy shorter (even counts only, so it comes round evenly):
+    // rays shrink toward their inner end, arms toward the hub
+    const anchorAt = dna.piece.kind === 'ray' ? new Point(dna.piece.inner * S, 0) : dna.piece.kind === 'arm' ? ORIGIN : base.bounds.center;
+    const short = (c, k) => (L.alt && L.alt !== 1 && n % 2 === 0 && k % 2 ? c.scale(L.alt, anchorAt) : c);
+    const copies = Array.from({ length: n }, (_, k) => short(copy(base), k).rotate((360 * k) / n + offset - 90, ORIGIN));
+    if (dna.piece.hub) copies.push(circle(0, 0, dna.piece.hub * S));
+    return copies;
   }
   if (L.mode === 'bars') {
     return Array.from({ length: L.n }, (_, k) => copy(piece).rotate((180 * k) / L.n + 90, ORIGIN));
@@ -372,12 +511,28 @@ function arrange(piece, dna) {
   return [piece];
 }
 
-function makeContainer(c) {
+function makeContainer(c, cut) {
+  if (c.kind === 'scallop') {
+    // a disc with a soft lobe between each pair of places the keyhole slits
+    // leave the rim
+    const n = cut?.n ?? 6;
+    const exit = cut?.kind === 'keyholes' ? exitAngle(cut.depth, cut.tilt) : 0;
+    return unite(circle(0, 0, S * 0.8), ...ring(n, S * 0.58, exit + 180 / n).map(([x, y]) => circle(x, y, S * 0.42)));
+  }
   if (c.kind === 'squircle') return quad(S, S, 0.86);
   if (c.kind === 'square') return rect(0, 0, 2 * S, 2 * S, S * 0.4);
   if (c.kind === 'hex') return roundedPolygon(ring(6, S, 30), S * 0.14);
   if (c.kind === 'pill') return rect(0, 0, 2 * S, 1.3 * S, 0.65 * S);
   return circle(0, 0, S);
+}
+
+// Where a slit that ends `depth` out from the middle, tilted `tilt` degrees
+// off the radius, crosses the rim: degrees round from the slit's own end.
+function exitAngle(depth, tilt) {
+  const t = rad(tilt);
+  // |(depth, 0) + u (cos t, sin t)| = 1
+  const u = -depth * Math.cos(t) + Math.sqrt(depth * depth * Math.cos(t) ** 2 - depth * depth + 1);
+  return (Math.atan2(u * Math.sin(t), depth + u * Math.cos(t)) * 180) / Math.PI;
 }
 
 // a square with its corners bitten off by circles, tips trimmed round
@@ -413,6 +568,27 @@ function applyCut(item, cut) {
     const radius = reach * (cut.kind === 'wave' ? 2 : cut.g * 1.6);
     return subtract(item, band([[-reach * 2, y + off], [-x, y + off], [x, off - y], [reach * 2, off - y]], reach * cut.g, { radius, round: false }));
   }
+  if (cut.kind === 'keyholes') {
+    // slits from outside in, tilted off the radius, each ending in a round
+    // hole (the slit's round end sits inside the hole, so nothing coincides)
+    const slots = Array.from({ length: cut.n }, (_, k) => {
+      const at = rad((360 * k) / cut.n - 90);
+      const tilted = at + rad(cut.tilt);
+      const end = [Math.cos(at) * reach * cut.depth, Math.sin(at) * reach * cut.depth];
+      const out = [end[0] + Math.cos(tilted) * reach * 1.6, end[1] + Math.sin(tilted) * reach * 1.6];
+      return unite(band([out, end], reach * cut.g), circle(end[0], end[1], reach * cut.hole));
+    });
+    return subtract(item, ...slots);
+  }
+  if (cut.kind === 'frame') {
+    // the inside opened up, crossed by a bent bar as thick as the walls
+    const inner = copy(item).scale(1 - cut.wall, ORIGIN);
+    const w = (reach * cut.wall) / 2;
+    const y = reach * cut.lift;
+    const x = reach * cut.run;
+    const bar = band([[-reach * 2, y + off], [-x, y + off], [x, off - y], [reach * 2, off - y]], w, { radius: w * 2, round: false });
+    return subtract(item, subtract(inner, bar));
+  }
   return item;
 }
 
@@ -444,7 +620,7 @@ export function buildDna(dna) {
     item = dna.layout.join === 'xor' ? xor(pieces) : unite(pieces);
   }
   if (dna.container) {
-    const box = makeContainer(dna.container);
+    const box = makeContainer(dna.container, dna.cut);
     if (item) {
       // pieces cut out of the container, sized to sit inside it
       item.scale((S * 1.3) / Math.max(item.bounds.width, item.bounds.height), ORIGIN);
@@ -452,6 +628,8 @@ export function buildDna(dna) {
     } else item = box;
   }
   if (!item || item.isEmpty()) return null;
+  // melted: every corner where pieces meet rounded right off
+  if (dna.melt) item = roundCorners(item, Math.max(item.bounds.width, item.bounds.height) * dna.melt);
   if (dna.cut) item = applyCut(item, dna.cut);
   if (dna.core) item = addCore(item, dna.core);
   if (!item || item.isEmpty()) return null;
@@ -473,8 +651,8 @@ function roll(rng, spec) {
 function vary(dna, rng, share) {
   const out = clone(dna);
   for (const [slot, genes] of Object.entries(dna.vary ?? {})) {
-    if (slot === 'round') {
-      if (rng.chance(share)) out.round = roll(rng, genes);
+    if (typeof dna[slot] === 'number') {
+      if (rng.chance(share)) out[slot] = roll(rng, genes);
       continue;
     }
     if (!out[slot]) continue;
@@ -548,7 +726,7 @@ function cross(a, b, rng) {
 // Off balance, but only just: the cut moves off the middle, or one piece
 // comes out a little smaller, so the visual weight stays centred.
 function unbalance(dna, rng) {
-  if (['slit', 'zig', 'wave'].includes(dna.cut?.kind)) dna.cut.offset = rng.float(0.1, 0.22) * rng.pick([1, -1]);
+  if (['slit', 'zig', 'wave', 'frame'].includes(dna.cut?.kind)) dna.cut.offset = rng.float(0.1, 0.22) * rng.pick([1, -1]);
   else if (['pair', 'row', 'quad'].includes(dna.layout?.mode)) dna.layout.odd = rng.float(0.74, 0.86);
   return dna;
 }

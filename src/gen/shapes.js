@@ -19,8 +19,9 @@ export function capsule(ax, ay, bx, by, r) {
 // A stroke of half-width w along a polyline whose bends are rounded with
 // arcs of the given radius (less where a run is too short for it), drawn as
 // one exact outline: offset lines and concentric arcs, no overlapping parts to
-// merge. Ends are round, or flat (for cuts that run off the shape anyway).
+// merge. Ends are round or flat; `round` may also be [start, end].
 export function band(points, w, { radius = w * 1.5, round = true } = {}) {
+  const [roundStart, roundEnd] = Array.isArray(round) ? round : [round, round];
   const P = points.map((p) => new Point(p));
   const n = P.length;
   const dir = (i) => P[i + 1].subtract(P[i]).normalize();
@@ -32,7 +33,9 @@ export function band(points, w, { radius = w * 1.5, round = true } = {}) {
     const d2 = dir(i);
     const turn = Math.acos(Math.max(-1, Math.min(1, d1.dot(d2))));
     if (turn < 1e-3) continue;
-    const room = Math.min(P[i].getDistance(P[i - 1]), P[i].getDistance(P[i + 1])) / 2;
+    // a run shared with another bend gives each half; an end run is all ours
+    const share = (j) => (j === 0 || j === n - 1 ? 1 : 0.5);
+    const room = Math.min(P[i].getDistance(P[i - 1]) * share(i - 1), P[i].getDistance(P[i + 1]) * share(i + 1));
     const tl = Math.min(radius * Math.tan(turn / 2), room);
     const r = Math.max(tl / Math.tan(turn / 2), w * 1.05);
     const t = r * Math.tan(turn / 2);
@@ -64,11 +67,11 @@ export function band(points, w, { radius = w * 1.5, round = true } = {}) {
   path.moveTo(P[0].add(left(d0).multiply(w)));
   walk(1);
   path.lineTo(P[n - 1].add(left(dn).multiply(w)));
-  if (round) path.arcTo(P[n - 1].add(dn.multiply(w)), P[n - 1].subtract(left(dn).multiply(w)));
+  if (roundEnd) path.arcTo(P[n - 1].add(dn.multiply(w)), P[n - 1].subtract(left(dn).multiply(w)));
   else path.lineTo(P[n - 1].subtract(left(dn).multiply(w)));
   walk(-1);
   path.lineTo(P[0].subtract(left(d0).multiply(w)));
-  if (round) path.arcTo(P[0].subtract(d0.multiply(w)), P[0].add(left(d0).multiply(w)));
+  if (roundStart) path.arcTo(P[0].subtract(d0.multiply(w)), P[0].add(left(d0).multiply(w)));
   path.closePath();
   return path;
 }

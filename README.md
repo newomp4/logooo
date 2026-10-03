@@ -37,6 +37,14 @@ Strokes, chevrons, arches, arcs and channels are drawn as one exact outline (off
 | Arcs | A ring broken into round-ended arcs |
 | Grid | Discs or soft squares on a small grid, merged or cancelled where they overlap |
 | Chain | Two thick arches hooked into each other, one turned over |
+| Keyhole | A scalloped disc cut by tilted slits, each ending in a round keyhole |
+| Burst | Tapered rays fanning round an empty middle, long and short by turns |
+| Splat | Round-ended arms melted into a hub |
+| Elbow | Thick flat-ended bands bent through a quarter turn, sometimes with a block alongside |
+| Ramp | A leaning slab and a block with a deep rounded arch between them, paired |
+| Frame | A frame (hexagon, squircle, circle) crossed by a bent bar as thick as its walls |
+| Duo | Two lobes joined by a smooth waist |
+| Branch | Slanted strokes with a tail branching off, filleted where they meet |
 | Strokes | A bent stroke and its 180° turn |
 | Bloom | Circles on a grid or ring melted into a scalloped frame (the circle-grid look) |
 | Cloud | Circles bunched and filleted into a soft body, filled or outlined, sometimes with eyes |
