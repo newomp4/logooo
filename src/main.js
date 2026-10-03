@@ -5,12 +5,13 @@ import { meshFor } from './palette.js';
 
 const STORAGE_KEY = 'logooo:v1';
 const MAX_HISTORY = 240;
+const MAX_SAVED = 500;
 
 const $ = (sel) => document.querySelector(sel);
-const tiles = [...document.querySelectorAll('[data-tile]')];
+const tiles = [$('#canvas'), ...document.querySelectorAll('[data-tile]')];
 const mesh = $('.mesh');
 const colorTile = $('.icon--color');
-const historyEl = $('#history');
+const listEl = $('#list');
 
 // ------------------------------------------------------------------ state
 
@@ -22,24 +23,30 @@ function load() {
   }
 }
 
-const saved = load();
+const stored = load();
 const state = {
-  history: Array.isArray(saved.history) ? saved.history : [],
-  index: 0,
-  mode: saved.mode === 'all' || FAMILY_NAMES.includes(saved.mode) ? saved.mode : 'all',
-  ink: INKS[saved.ink] ? saved.ink : 'black',
+  history: Array.isArray(stored.history) ? stored.history : [],
+  saved: Array.isArray(stored.saved) ? stored.saved : [],
+  view: 'history',
+  currentId: null,
+  mode: stored.mode === 'all' || FAMILY_NAMES.includes(stored.mode) ? stored.mode : 'all',
+  ink: INKS[stored.ink] ? stored.ink : 'black',
 };
 
 function persist() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ history: state.history, mode: state.mode, ink: state.ink }));
+    const { history, saved, mode, ink } = state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, saved, mode, ink }));
   } catch {
-    // storage full or blocked; history just won't survive a reload
+    // storage full or blocked; marks just won't survive a reload
   }
 }
 
-const current = () => state.history[state.index];
 const idOf = (entry) => (entry.mode === 'all' ? entry.seed : `${entry.mode}.${entry.seed}`);
+const find = (id) => state.history.find((e) => idOf(e) === id) ?? state.saved.find((e) => idOf(e) === id);
+const current = () => (state.currentId ? find(state.currentId) : undefined);
+const visible = () => state[state.view];
+const isSaved = (entry) => state.saved.some((e) => idOf(e) === idOf(entry));
 const fileName = (entry) => `logooo-${entry.family}-${entry.seed}`;
 
 function build(seed, mode) {
@@ -55,13 +62,15 @@ const markSvg = (m) =>
 function renderStage(animate) {
   const entry = current();
   if (!entry) return;
+  const id = idOf(entry);
+
   tiles.forEach((tile, i) => {
     tile.querySelector('.mark')?.remove();
     tile.insertAdjacentHTML('beforeend', markSvg(entry));
     if (animate) {
       const svg = tile.querySelector('.mark');
       svg.classList.add('rise');
-      svg.style.setProperty('--d', `${i * 0.04}s`);
+      svg.style.setProperty('--d', `${i * 0.03}s`);
     }
   });
 
@@ -75,66 +84,118 @@ function renderStage(animate) {
   }
 
   $('#info').innerHTML = `<b>${entry.family}</b> · ${entry.symmetry} · ${entry.seed}`;
-  $('#older').disabled = state.index >= state.history.length - 1;
-  $('#newer').disabled = state.index <= 0;
-  $('#favicon').href = faviconHref(entry);
-  history.replaceState(null, '', `#${idOf(entry)}`);
+  const star = $('#save');
+  star.setAttribute('aria-pressed', String(isSaved(entry)));
+  star.setAttribute('aria-label', isSaved(entry) ? 'Unsave mark' : 'Save mark');
 
-  for (const btn of historyEl.querySelectorAll('.thumb')) {
-    btn.setAttribute('aria-current', String(btn.dataset.id === idOf(entry)));
+  const list = visible();
+  const index = list.findIndex((e) => idOf(e) === id);
+  $('#older').disabled = !list.length || index === list.length - 1;
+  $('#newer').disabled = !list.length || index === 0;
+
+  $('#favicon').href = faviconHref(entry);
+  history.replaceState(null, '', `#${id}`);
+  markCurrent();
+}
+
+function markCurrent() {
+  for (const btn of listEl.querySelectorAll('.thumb')) {
+    btn.setAttribute('aria-current', String(btn.dataset.id === state.currentId));
   }
 }
 
 function thumbHtml(entry) {
-  return `<li><button class="thumb" type="button" data-id="${idOf(entry)}" aria-label="${entry.family} ${entry.seed}">${markSvg(entry)}</button></li>`;
+  const id = idOf(entry);
+  const saved = isSaved(entry) ? ' is-saved' : '';
+  return `<li><button class="thumb${saved}" type="button" data-id="${id}" aria-label="${entry.family} ${entry.seed}">${markSvg(entry)}</button></li>`;
 }
 
-function renderHistory() {
-  historyEl.innerHTML = state.history.map(thumbHtml).join('');
-  renderCount();
+function renderList() {
+  const list = visible();
+  listEl.innerHTML = list.map(thumbHtml).join('');
+  $('#empty').hidden = list.length > 0;
+  $('#clear').hidden = state.view !== 'history';
+  $('#n-history').textContent = state.history.length;
+  $('#n-saved').textContent = state.saved.length;
+  for (const tab of document.querySelectorAll('.tab')) {
+    tab.setAttribute('aria-selected', String(tab.dataset.view === state.view));
+  }
+  markCurrent();
 }
 
-function renderCount() {
-  const n = state.history.length;
-  $('#count').textContent = `${n} ${n === 1 ? 'mark' : 'marks'}`;
+function renderChips(el, items, pressed, attr) {
+  el.innerHTML = items
+    .map(({ value, label, dot }) => {
+      const swatch = dot ? `<span class="ink-dot" style="background:${dot}"></span>` : '';
+      return `<button class="chip" type="button" ${attr}="${value}" aria-pressed="${value === pressed}">${swatch}${label}</button>`;
+    })
+    .join('');
 }
+
+const titleCase = (s) => s[0].toUpperCase() + s.slice(1);
 
 function renderFamilies() {
-  const names = ['all', ...FAMILY_NAMES];
-  $('#families').innerHTML = names
-    .map((name) => `<button class="chip" type="button" data-mode="${name}" aria-pressed="${name === state.mode}">${name[0].toUpperCase()}${name.slice(1)}</button>`)
-    .join('');
+  const items = ['all', ...FAMILY_NAMES].map((name) => ({ value: name, label: titleCase(name) }));
+  renderChips($('#families'), items, state.mode, 'data-mode');
 }
 
 function renderInks() {
-  $('#inks').innerHTML = Object.entries(INKS)
-    .map(([name, hex]) => `<button class="chip" type="button" data-ink="${name}" aria-pressed="${name === state.ink}"><span class="ink-dot" style="background:${hex}"></span>${name[0].toUpperCase()}${name.slice(1)}</button>`)
-    .join('');
+  const items = Object.entries(INKS).map(([name, hex]) => ({ value: name, label: titleCase(name), dot: hex }));
+  renderChips($('#inks'), items, state.ink, 'data-ink');
 }
 
 // --------------------------------------------------------------- actions
 
-function add(entry, animate = true) {
-  state.history = [entry, ...state.history.filter((e) => idOf(e) !== idOf(entry))].slice(0, MAX_HISTORY);
-  state.index = 0;
-  persist();
-  renderHistory();
-  renderStage(animate);
-  const first = historyEl.querySelector('li');
-  first?.classList.add('rise');
-}
-
 function create() {
   for (let i = 0; i < 6; i++) {
     const entry = build(randomSeed(), state.mode);
-    if (entry) return add(entry);
+    if (!entry) continue;
+    state.history = [entry, ...state.history.filter((e) => idOf(e) !== idOf(entry))].slice(0, MAX_HISTORY);
+    state.currentId = idOf(entry);
+    state.view = 'history';
+    persist();
+    renderList();
+    listEl.querySelector('li')?.classList.add('rise');
+    renderStage(true);
+    return;
   }
 }
 
-function show(index) {
-  if (index < 0 || index >= state.history.length || index === state.index) return;
-  state.index = index;
+function select(id) {
+  if (!id || id === state.currentId || !find(id)) return;
+  state.currentId = id;
   renderStage(true);
+}
+
+// ← goes to older marks, → to newer ones, within the open tab
+function step(delta) {
+  const list = visible();
+  if (!list.length) return;
+  const index = list.findIndex((e) => idOf(e) === state.currentId);
+  const next = index === -1 ? 0 : index + delta;
+  if (next >= 0 && next < list.length) select(idOf(list[next]));
+}
+
+function toggleSave() {
+  const entry = current();
+  if (!entry) return;
+  const id = idOf(entry);
+  state.saved = isSaved(entry) ? state.saved.filter((e) => idOf(e) !== id) : [entry, ...state.saved].slice(0, MAX_SAVED);
+  persist();
+  renderList();
+  renderStage(false);
+  const star = $('#save');
+  star.classList.remove('pop');
+  void star.offsetWidth;
+  star.classList.add('pop');
+  announce(isSaved(entry) ? 'Saved' : 'Removed from saved');
+}
+
+function setView(view) {
+  if (view === state.view) return;
+  state.view = view;
+  renderList();
+  renderStage(false);
 }
 
 function announce(text) {
@@ -142,28 +203,31 @@ function announce(text) {
 }
 
 function flashCopied(button) {
+  const [label, done] = button.querySelectorAll('.swap > span');
   button.dataset.copied = 'true';
-  button.querySelector('.swap > span:first-child')?.setAttribute('aria-hidden', 'true');
-  button.querySelector('.swap > span:last-child')?.setAttribute('aria-hidden', 'false');
+  label.setAttribute('aria-hidden', 'true');
+  done.setAttribute('aria-hidden', 'false');
   clearTimeout(button._timer);
   button._timer = setTimeout(() => {
     button.dataset.copied = 'false';
-    button.querySelector('.swap > span:first-child')?.setAttribute('aria-hidden', 'false');
-    button.querySelector('.swap > span:last-child')?.setAttribute('aria-hidden', 'true');
+    label.setAttribute('aria-hidden', 'false');
+    done.setAttribute('aria-hidden', 'true');
   }, 1400);
 }
 
 async function copy(kind) {
   const entry = current();
   if (!entry) return;
-  const button = document.querySelector(`[data-copy="${kind}"]`);
+  const color = INKS[state.ink];
   try {
-    await (kind === 'svg' ? copySvg : copyPng)(entry, INKS[state.ink]);
-    flashCopied(button);
-    announce(`Copied ${kind.toUpperCase()}`);
+    if (kind === 'svg') await copySvg(entry, color);
+    else if (kind === 'png') await copyPng(entry, color);
+    else await navigator.clipboard.writeText(location.href);
+    flashCopied(document.querySelector(`[data-copy="${kind}"]`));
+    announce(`Copied ${kind === 'link' ? 'link' : kind.toUpperCase()}`);
   } catch (err) {
     console.error(err);
-    announce(`Couldn't copy ${kind.toUpperCase()}`);
+    announce(`Couldn't copy ${kind}`);
   }
 }
 
@@ -175,8 +239,9 @@ function download(kind) {
 // ---------------------------------------------------------------- events
 
 $('#new').addEventListener('click', create);
-$('#older').addEventListener('click', () => show(state.index + 1));
-$('#newer').addEventListener('click', () => show(state.index - 1));
+$('#older').addEventListener('click', () => step(1));
+$('#newer').addEventListener('click', () => step(-1));
+$('#save').addEventListener('click', toggleSave);
 
 $('#families').addEventListener('click', (e) => {
   const mode = e.target.closest('[data-mode]')?.dataset.mode;
@@ -195,8 +260,6 @@ $('#inks').addEventListener('click', (e) => {
 });
 
 for (const btn of document.querySelectorAll('[data-copy]')) {
-  btn.querySelector('.copy-icon').innerHTML =
-    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3V2.5A1 1 0 0 0 9.5 1.5h-7a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1H3"/></svg><span class="tick">✓</span>';
   btn.addEventListener('click', () => copy(btn.dataset.copy));
 }
 
@@ -204,16 +267,17 @@ for (const btn of document.querySelectorAll('[data-save]')) {
   btn.addEventListener('click', () => download(btn.dataset.save));
 }
 
-historyEl.addEventListener('click', (e) => {
-  const id = e.target.closest('.thumb')?.dataset.id;
-  if (id) show(state.history.findIndex((entry) => idOf(entry) === id));
-});
+for (const tab of document.querySelectorAll('.tab')) {
+  tab.addEventListener('click', () => setView(tab.dataset.view));
+}
+
+listEl.addEventListener('click', (e) => select(e.target.closest('.thumb')?.dataset.id));
 
 const clearBtn = $('#clear');
 clearBtn.addEventListener('click', () => {
   if (clearBtn.dataset.armed !== 'true') {
     clearBtn.dataset.armed = 'true';
-    clearBtn.textContent = 'Clear all?';
+    clearBtn.textContent = 'Clear history?';
     clearTimeout(clearBtn._timer);
     clearBtn._timer = setTimeout(() => {
       clearBtn.dataset.armed = 'false';
@@ -223,11 +287,11 @@ clearBtn.addEventListener('click', () => {
   }
   clearBtn.dataset.armed = 'false';
   clearBtn.textContent = 'Clear';
-  // keep the mark on screen, drop everything else
-  state.history = current() ? [current()] : [];
-  state.index = 0;
+  // saved marks stay; the one on screen stays too
+  const entry = current();
+  state.history = entry ? [entry] : [];
   persist();
-  renderHistory();
+  renderList();
   renderStage(false);
 });
 
@@ -238,27 +302,23 @@ document.addEventListener('keydown', (e) => {
   if ((key === ' ' || key === 'enter' || key === 'n') && !onControl) {
     e.preventDefault();
     create();
-  } else if (key === 'arrowleft') {
-    show(state.index + 1);
-  } else if (key === 'arrowright') {
-    show(state.index - 1);
-  } else if (key === 'c') {
-    copy('svg');
-  } else if (key === 'p') {
-    copy('png');
-  } else if (key === 's') {
-    download('svg');
-  }
+  } else if (key === 'arrowleft') step(1);
+  else if (key === 'arrowright') step(-1);
+  else if (key === 'f') toggleSave();
+  else if (key === 'c') copy('svg');
+  else if (key === 'p') copy('png');
+  else if (key === 'l') copy('link');
+  else if (key === 's') download('svg');
 });
 
 // ------------------------------------------------------------------ boot
 
+// Opens the mark named in the URL hash, rebuilding it from its seed if needed.
 function fromHash() {
   const id = decodeURIComponent(location.hash.slice(1));
   if (!id) return false;
-  const known = state.history.findIndex((entry) => idOf(entry) === id);
-  if (known >= 0) {
-    state.index = known;
+  if (find(id)) {
+    state.currentId = id;
     return true;
   }
   const [mode, seed] = id.includes('.') ? id.split('.') : ['all', id];
@@ -266,7 +326,7 @@ function fromHash() {
   const entry = build(seed, mode);
   if (!entry) return false;
   state.history = [entry, ...state.history].slice(0, MAX_HISTORY);
-  state.index = 0;
+  state.currentId = idOf(entry);
   persist();
   return true;
 }
@@ -274,15 +334,16 @@ function fromHash() {
 renderFamilies();
 renderInks();
 if (fromHash() || state.history.length) {
-  renderHistory();
+  state.currentId ??= idOf(state.history[0]);
+  renderList();
   renderStage(true);
 } else {
   create();
 }
 
 window.addEventListener('hashchange', () => {
-  if (location.hash.slice(1) !== (current() && idOf(current())) && fromHash()) {
-    renderHistory();
+  if (location.hash.slice(1) !== state.currentId && fromHash()) {
+    renderList();
     renderStage(true);
   }
 });

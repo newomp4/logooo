@@ -11,15 +11,25 @@ Every mark is built from plain geometry (circles, four-node squircles, concave s
 | Style | What it makes |
 | --- | --- |
 | Bloom | Scalloped frames of overlapping circles with a shaped opening and an optional dot |
-| Lattice | Circle grids where overlaps cancel (XOR) or get punched through, including scales and columns |
+| Lattice | Circle grids where overlaps cancel (XOR) or get punched through |
 | Orbit | Circles around a center: crescents, bitten moons, chains, rosettes, swirls |
+| Petal | Almond leaves or teardrops fanned around a center, straight or twisted |
 | Spark | Concave four-point stars, alone, in clusters, or cut out of a solid |
+| Spoke | Asterisks and suns built from rounded or tapered bars |
+| Badge | Rounded stars and seals, plain or with an opening |
 | Ring | Circle and squircle bands with shaped holes, dots, inner rings and slots |
+| Stripe | Solid shapes sliced into bands, or striped only below the horizon |
+| Split | Shapes cut through the middle with the halves slid apart, or quartered |
+| Tiles | Bauhaus-style grids of squares, quarter discs, halves, leaves and triangles |
 | Pixel | Mirror-symmetric bitmaps as sharp blocks, soft blocks or dots |
 | Field | Halftone dot fields with radial or diagonal falloff |
-| Tiles | Bauhaus-style grids of squares, quarter discs, halves, leaves and triangles |
 
-Each result is checked before it's shown. Marks with slivers, specks, lopsided ink coverage, or broken symmetry (a failed boolean op) are rerolled.
+### Quality checks
+
+Before a mark is shown it has to pass two checks, or it's rerolled:
+
+- **Geometry:** no slivers, no specks, balanced ink coverage, intact symmetry (a failed boolean op breaks it), and nothing as plain as a lone disc or square.
+- **Legibility** (`src/gen/legibility.js`): the mark is rasterized at 64px, the way it would appear as an app icon, and scored on ink thinner than ~5% of its size, gaps narrower than that, specks, how many separate pieces and holes the eye would count, and small satellites floating away from the main body. Busy marks score high and get dropped.
 
 ## Use
 
@@ -31,14 +41,17 @@ npm run dev
 | Key | Action |
 | --- | --- |
 | `space` / `n` | New mark |
-| `←` `→` | Browse history |
+| `←` `→` | Browse the open tab (History or Saved) |
+| `f` | Save / unsave the current mark |
 | `c` | Copy SVG |
 | `p` | Copy PNG (1024px, transparent) |
-| `s` | Save SVG |
+| `l` | Copy a link to the mark |
+| `s` | Download SVG |
 
 - **Ink** sets the export colour (black or white).
-- **History** is kept in localStorage (last 240 marks).
-- **Links:** the URL hash holds the seed, so a link like `/#bloom.k3j9x2` always rebuilds the same mark.
+- **History** keeps the last 240 marks; **Saved** keeps the ones you star. Both live in localStorage.
+- **Links:** the URL hash holds the seed, so a link like `/#petal.k3j9x2` always rebuilds the same mark.
+- **Previews:** under the stage the mark is shown as light, dark and colour app icons, and at 32px and 16px.
 
 ## Layout
 
@@ -47,7 +60,8 @@ src/
   gen/
     rng.js        seeded PRNG
     geom.js       primitives, symmetry groups, booleans, clean-up and checks
-    families.js   the eight styles
+    legibility.js icon-size raster check for over-detailed marks
+    families.js   the thirteen styles
     index.js      generate(seed, family)
   export.js       SVG / PNG / clipboard
   palette.js      mesh gradients for the colour icon

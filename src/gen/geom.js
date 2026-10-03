@@ -1,6 +1,7 @@
 // Geometry kernel: primitives, symmetry groups, boolean ops and the final
 // clean-up pass that turns a paper.js item into a normalized SVG path.
 import paper from 'paper/dist/paper-core.js';
+import { detailScore } from './legibility.js';
 
 paper.setup(new paper.Size(1, 1));
 paper.settings.insertItems = false;
@@ -55,6 +56,68 @@ export function place(item, x = 0, y = 0, rotate = 0) {
 export function shear(item, k) {
   item.transform(new Matrix(1, 0, k, 1, 0, 0));
   return item;
+}
+
+// Pointed almond from (0,0) to (length,0).
+export function leaf(length, width) {
+  const a = length * 0.28;
+  const b = width / 2 / 0.75;
+  return new Path({
+    closed: true,
+    segments: [new Segment([0, 0], [a, b], [a, -b]), new Segment([length, 0], [-a, -b], [-a, b])],
+  });
+}
+
+// Teardrop with its point at the origin and a round end of radius r on +x.
+export function drop(length, r) {
+  const c = length - r;
+  const t = Math.sqrt(c * c - r * r);
+  const a = Math.asin(r / c);
+  const p = new Path();
+  p.moveTo(new Point(0, 0));
+  p.lineTo(new Point(t * Math.cos(a), -t * Math.sin(a)));
+  p.arcTo(new Point(length, 0), new Point(t * Math.cos(a), t * Math.sin(a)));
+  p.closePath();
+  return p;
+}
+
+// Star polygon points: n tips at radius r, n valleys at radius inner.
+export function starPoints(n, r, inner, offsetDeg = 0) {
+  return Array.from({ length: n * 2 }, (_, i) => {
+    const a = ((offsetDeg - 90 + (180 * i) / n) * Math.PI) / 180;
+    const d = i % 2 ? inner : r;
+    return [Math.cos(a) * d, Math.sin(a) * d];
+  });
+}
+
+// Polygon with circular fillets; `radius` may be a function of the corner index.
+export function roundedPolygon(points, radius) {
+  const radiusAt = typeof radius === 'function' ? radius : () => radius;
+  const segments = [];
+  const n = points.length;
+  for (let i = 0; i < n; i++) {
+    const v = new Point(points[i]);
+    const e1 = new Point(points[(i - 1 + n) % n]).subtract(v);
+    const e2 = new Point(points[(i + 1) % n]).subtract(v);
+    const d1 = e1.normalize();
+    const d2 = e2.normalize();
+    const alpha = Math.acos(Math.max(-1, Math.min(1, d1.dot(d2))));
+    let r = radiusAt(i);
+    let t = r / Math.tan(alpha / 2);
+    const tMax = 0.5 * Math.min(e1.length, e2.length);
+    if (t > tMax) {
+      t = tMax;
+      r = t * Math.tan(alpha / 2);
+    }
+    if (r < 1e-6) {
+      segments.push(new Segment(v));
+      continue;
+    }
+    const h = (4 / 3) * Math.tan((Math.PI - alpha) / 4) * r;
+    segments.push(new Segment(v.add(d1.multiply(t)), [0, 0], d1.multiply(-h)));
+    segments.push(new Segment(v.add(d2.multiply(t)), d2.multiply(-h), [0, 0]));
+  }
+  return new Path({ segments, closed: true });
 }
 
 // --------------------------------------------------------------- layouts
@@ -346,7 +409,11 @@ function fit(item) {
 
 // Normalizes the mark to a 100-unit box, strips dust and rejects shapes
 // with slivers or an unbalanced amount of ink.
-export function finalize(item, { minFill = 0.16, maxFill = 0.86, minFeature = 1.15, minPart = 30, minNodes = 5 } = {}, symmetry) {
+export function finalize(
+  item,
+  { minFill = 0.16, maxFill = 0.86, minFeature = 1.15, minPart = 30, minNodes = 5, maxDetail = 0.2, tips = 1, freePieces = 5 } = {},
+  symmetry,
+) {
   if (!item || item.isEmpty()) return null;
   let shape = item instanceof CompoundPath ? item : new CompoundPath({ children: [item] });
   shape.reorient(false, true);
@@ -385,11 +452,16 @@ export function finalize(item, { minFill = 0.16, maxFill = 0.86, minFeature = 1.
   if (nodes < minNodes) return null;
   if (shape.children.length === 1 && (Math.abs(fill - Math.PI / 4) < 0.012 || fill > 0.97)) return null;
 
+  // too much fine detail to read as a logo at icon size
+  const detail = detailScore(shape, { tips, freePieces });
+  if (detail > maxDetail) return null;
+
   return {
     d: shape.getPathData(null, 2),
     width: +width.toFixed(2),
     height: +height.toFixed(2),
     fill: +fill.toFixed(3),
     parts: shape.children.length,
+    detail: +detail.toFixed(3),
   };
 }

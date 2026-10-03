@@ -18,61 +18,76 @@
           logooo <span class="slash" aria-hidden="true">/</span>
           <a class="handle" href="https://x.com/newomp4" target="_blank" rel="noopener noreferrer">@newomp4<span class="handle-arrow" aria-hidden="true">↗</span></a>
         </h1>
-        <p class="lede rise" style="--d: 0.05s">
-          Symmetric marks from circles, sparks and grids. Press <kbd>space</kbd> for another.
-        </p>
+        <p class="lede rise" style="--d: 0.05s">Symmetric marks from circles, sparks and grids. Press <kbd>space</kbd> for another.</p>
       </header>
 
-      <section class="stage rise" style="--d: 0.1s" aria-label="Current mark as app icons">
+      <section class="stage rise" style="--d: 0.1s" aria-label="Current mark">
+        <div class="canvas" id="canvas"></div>
+        <div class="stage-meta">
+          <span class="info" id="info" aria-live="polite"></span>
+          <span class="nav">
+            <button class="icon-btn star" id="save" type="button" aria-pressed="false" aria-label="Save mark" title="Save (f)">
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 1.6l1.9 3.95 4.35.6-3.17 3.03.78 4.32L8 11.43 4.14 13.5l.78-4.32L1.75 6.15l4.35-.6z" /></svg>
+            </button>
+            <button class="icon-btn" id="older" type="button" aria-label="Previous mark" title="Previous (←)">←</button>
+            <button class="icon-btn" id="newer" type="button" aria-label="Next mark" title="Next (→)">→</button>
+          </span>
+        </div>
+      </section>
+
+      <div class="toolbar rise" style="--d: 0.15s">
+        <button class="new" id="new" type="button">New <kbd>space</kbd></button>
+        <div class="actions">
+          <button class="action" type="button" data-copy="svg">
+            <span class="swap"><span aria-hidden="false">Copy SVG</span><span aria-hidden="true">Copied</span></span>
+          </button>
+          <button class="action" type="button" data-copy="png">
+            <span class="swap"><span aria-hidden="false">Copy PNG</span><span aria-hidden="true">Copied</span></span>
+          </button>
+          <button class="action" type="button" data-copy="link">
+            <span class="swap"><span aria-hidden="false">Link</span><span aria-hidden="true">Copied</span></span>
+          </button>
+          <span class="divider" aria-hidden="true"></span>
+          <button class="action" type="button" data-save="svg">SVG <span class="down" aria-hidden="true">↓</span></button>
+          <button class="action" type="button" data-save="png">PNG <span class="down" aria-hidden="true">↓</span></button>
+        </div>
+      </div>
+
+      <section class="previews rise" style="--d: 0.2s" aria-label="As an app icon and at small sizes">
         <div class="icon icon--light" data-tile></div>
         <div class="icon icon--dark" data-tile></div>
         <div class="icon icon--color" data-tile><div class="mesh" aria-hidden="true"></div></div>
+        <div class="sizes">
+          <span class="size" data-tile title="32px"></span>
+          <span class="size size--small" data-tile title="16px"></span>
+        </div>
       </section>
 
-      <div class="bar rise" style="--d: 0.15s">
-        <span class="info" id="info" aria-live="polite"></span>
-        <span class="nav">
-          <button class="step" id="older" type="button" aria-label="Previous mark">←</button>
-          <button class="step" id="newer" type="button" aria-label="Next mark">→</button>
-          <button class="new" id="new" type="button">New</button>
-        </span>
-      </div>
-
       <dl class="rows">
-        <div class="row rise" style="--d: 0.2s">
+        <div class="row rise" style="--d: 0.25s">
           <dt>Style</dt>
           <dd class="chips" id="families"></dd>
-        </div>
-        <div class="row rise" style="--d: 0.25s">
-          <dt>Export</dt>
-          <dd class="chips">
-            <button class="action" type="button" data-copy="svg">
-              <span class="swap"><span aria-hidden="false">Copy SVG</span><span aria-hidden="true">Copied</span></span>
-              <span class="copy-icon" aria-hidden="true"></span>
-            </button>
-            <button class="action" type="button" data-copy="png">
-              <span class="swap"><span aria-hidden="false">Copy PNG</span><span aria-hidden="true">Copied</span></span>
-              <span class="copy-icon" aria-hidden="true"></span>
-            </button>
-            <button class="action" type="button" data-save="svg">SVG <span class="down" aria-hidden="true">↓</span></button>
-            <button class="action" type="button" data-save="png">PNG <span class="down" aria-hidden="true">↓</span></button>
-          </dd>
         </div>
         <div class="row rise" style="--d: 0.3s">
           <dt>Ink</dt>
           <dd class="chips" id="inks"></dd>
         </div>
-        <div class="row rise" style="--d: 0.35s">
-          <dt>History</dt>
-          <dd>
-            <ul class="thumbs" id="history"></ul>
-            <p class="history-meta"><span id="count"></span> <button class="clear" id="clear" type="button">Clear</button></p>
-          </dd>
-        </div>
       </dl>
 
+      <section class="library rise" style="--d: 0.35s" aria-label="Your marks">
+        <div class="library-head">
+          <div class="tabs" role="tablist">
+            <button class="tab" type="button" role="tab" data-view="history">History <span id="n-history"></span></button>
+            <button class="tab" type="button" role="tab" data-view="saved">Saved <span id="n-saved"></span></button>
+          </div>
+          <button class="clear" id="clear" type="button">Clear</button>
+        </div>
+        <ul class="thumbs" id="list"></ul>
+        <p class="empty" id="empty" hidden>Nothing saved yet. Press <kbd>f</kbd> or the star to keep a mark.</p>
+      </section>
+
       <footer class="hints rise" style="--d: 0.4s">
-        <kbd>space</kbd> new <span>·</span> <kbd>←</kbd> <kbd>→</kbd> browse <span>·</span> <kbd>c</kbd> copy svg <span>·</span> <kbd>p</kbd> copy png <span>·</span> <kbd>s</kbd> save svg
+        <kbd>space</kbd> new <span>·</span> <kbd>←</kbd> <kbd>→</kbd> browse <span>·</span> <kbd>f</kbd> save <span>·</span> <kbd>c</kbd> copy svg <span>·</span> <kbd>p</kbd> copy png <span>·</span> <kbd>l</kbd> link
       </footer>
       <p class="sr-only" id="status" aria-live="polite"></p>
     </div>

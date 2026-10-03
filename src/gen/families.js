@@ -1,7 +1,8 @@
 // Each family turns a seeded rng into a symmetric paper.js shape.
 // They return null when a roll doesn't produce something worth keeping.
 import {
-  K, ORIGIN, Path, Point, circle, ellipse, rect, quad, place, shear, grid, ring, group, orbit,
+  K, ORIGIN, Path, Point, circle, ellipse, rect, quad, place, shear, leaf, drop, starPoints, roundedPolygon,
+  grid, ring, group, orbit,
   unite, xor, subtract, intersect, clearance, reach, fitInside, gridOutline, compound,
 } from './geom.js';
 
@@ -196,7 +197,7 @@ function spark(rng) {
     } else if (ry !== rx) {
       symmetry = 'D2';
     }
-    limits = { minFill: 0.05, minFeature: 0.6, minNodes: 4 };
+    limits = { minFill: 0.05, minFeature: 0.6, minNodes: 4, tips: 0.25 };
   } else if (preset === 'cluster' || preset === 'cross') {
     const d = U;
     const s = d * rng.float(1.0, 1.35);
@@ -207,7 +208,7 @@ function spark(rng) {
     if (center === 'circle') stars.push(circle(0, 0, d * rng.float(0.3, 0.55)));
     if (center === 'spark') stars.push(place(quad(s * 0.7, s * 0.7, pinch), 0, 0, 45));
     item = unite(stars);
-    limits = { minFill: 0.1, minFeature: 0.8 };
+    limits = { minFill: 0.1, minFeature: 0.8, tips: 0.3 };
   } else if (preset === 'halo') {
     const n = rng.pick([4, 6, 8]);
     const R = U * 1.6;
@@ -221,7 +222,7 @@ function spark(rng) {
     stars.push(circle(0, 0, (R - len) * rng.float(0.55, 0.85)));
     item = unite(stars);
     symmetry = `D${n}`;
-    limits = { minFill: 0.08, minFeature: 0.8 };
+    limits = { minFill: 0.08, minFeature: 0.8, tips: 0.3 };
   } else {
     const base = place(quad(U * 2, U * 2, rng.weighted([[K, 3], [rng.float(0.65, 0.92), 3]])), 0, 0, rng.chance(0.25) ? 45 : 0);
     const wall = U * rng.float(0.3, 0.55);
@@ -233,7 +234,7 @@ function spark(rng) {
       if (clearance(dot, cut) > U * 0.2) item = unite(item, dot);
     }
   }
-  return { item, symmetry, limits };
+  return { item, symmetry, limits: limits ?? { tips: 0.5 } };
 }
 
 // ------------------------------------------------------------------- ring
@@ -329,7 +330,7 @@ function pixel(rng) {
 // Halftone-style dot fields whose size follows a symmetric falloff.
 
 function field(rng) {
-  const n = rng.weighted([[4, 3], [5, 3], [6, 1]]);
+  const n = rng.weighted([[3, 2], [4, 3], [5, 1.5]]);
   const law = rng.weighted([['radial', 3], ['diagonal', 3], ['ring', 1.2]]);
   const shape = rng.weighted([['ellipse', 4], ['circle', 3], ['spark', 1], ['squircle', 0.6]]);
   const invert = rng.chance(law === 'radial' ? 0.35 : 0.5);
@@ -365,7 +366,7 @@ function field(rng) {
     for (const dot of dots) dot.scale(0.88, dot.bounds.center);
   }
   const diagonal = law === 'diagonal';
-  return { item: compound(dots), symmetry: diagonal ? 'D2' : 'D4', axis: diagonal ? 45 : 0, limits: { minFill: 0.12, minFeature: 0.9, minPart: 10 } };
+  return { item: compound(dots), symmetry: diagonal ? 'D2' : 'D4', axis: diagonal ? 45 : 0, limits: { minFill: 0.12, minFeature: 0.9, minPart: 10, freePieces: 16 } };
 }
 
 // ------------------------------------------------------------------ tiles
@@ -426,13 +427,185 @@ function tiles(rng) {
   return { item, symmetry: sym, limits: { minFill: 0.28, maxFill: 0.85 } };
 }
 
+// ------------------------------------------------------------------ petal
+// Almond leaves or teardrops fanned around a center.
+
+function petal(rng) {
+  const n = rng.weighted([[4, 4], [6, 3], [8, 1.6], [5, 1.4], [3, 1.2]]);
+  const kind = rng.weighted([['leaf', 4], ['drop', 3]]);
+  const L = U * 2;
+  const overlap = rng.chance(0.55);
+  const start = overlap ? -L * rng.float(0.02, 0.14) : L * rng.float(0.16, 0.3);
+  const twist = rng.chance(0.3) ? rng.float(14, 32) * rng.pick([1, -1]) : 0;
+  const outward = kind === 'leaf' || rng.chance(0.65);
+
+  let shape;
+  if (kind === 'leaf') shape = leaf(L, L * rng.float(0.36, 0.62));
+  else {
+    shape = drop(L, L * rng.float(0.22, 0.34));
+    if (!outward) shape.scale(-1, 1, new Point(L / 2, 0));
+  }
+  shape.translate(new Point(start, 0));
+  if (twist) shape.rotate(twist, new Point(Math.max(start, 0), 0));
+
+  const petals = orbit(shape, group(n, false));
+  let item = unite(petals);
+  const centre = rng.weighted([['none', 3], ['dot', 2], ['hole', overlap ? 2 : 0]]);
+  if (centre === 'dot' && !overlap) {
+    const dot = circle(0, 0, start * rng.float(0.45, 0.75));
+    if (clearance(dot, item) > U * 0.25) item = unite(item, dot);
+  } else if (centre === 'dot' || centre === 'hole') {
+    const hole = circle(0, 0, L * rng.float(0.1, 0.2));
+    item = subtract(item, hole);
+  }
+  return { item, symmetry: twist ? `C${n}` : `D${n}`, limits: { tips: 0.4, minFill: 0.12 } };
+}
+
+// ------------------------------------------------------------------ spoke
+// Asterisks and suns built from rounded bars.
+
+function spoke(rng) {
+  const n = rng.weighted([[6, 3], [8, 2.5], [4, 1.5], [3, 1.5], [5, 1.2], [12, 0.6]]);
+  const R = U * 2;
+  const w = R * (n >= 8 ? rng.float(0.16, 0.26) : rng.float(0.22, 0.36));
+  const end = rng.weighted([['round', 4], ['soft', 1.5], ['taper', 2]]);
+  const hub = rng.chance(0.35);
+  const inner = hub ? R * rng.float(0.36, 0.5) : 0;
+
+  let arm;
+  if (end === 'taper') {
+    arm = drop(R - inner, w * 0.62);
+    arm.translate(new Point(inner, 0));
+  } else {
+    arm = rect((inner + R) / 2, 0, R - inner, w, end === 'round' ? w / 2 : w * 0.18);
+  }
+  const offset = n === 4 && rng.chance(0.5) ? 45 : 0;
+  const arms = orbit(place(arm, 0, 0, offset), group(n, false));
+  let item = unite(arms);
+
+  if (hub) {
+    const gap = U * rng.float(0.25, 0.4);
+    const core = circle(0, 0, inner - gap);
+    item = rng.chance(0.5) ? unite(item, core) : unite(item, subtract(core, circle(0, 0, (inner - gap) * rng.float(0.4, 0.6))));
+  } else if (n === 4 || rng.chance(0.4)) {
+    // a bare four-arm plus reads as a medical cross, so it always gets an opening
+    item = subtract(item, circle(0, 0, w * rng.float(0.32, 0.45)));
+  }
+  return { item, symmetry: `D${n}`, limits: { tips: end === 'taper' ? 0.4 : 1, minFill: 0.12 } };
+}
+
+// ------------------------------------------------------------------ badge
+// Rounded stars and seals, plain or with an opening.
+
+function badge(rng) {
+  const n = rng.weighted([[8, 3], [6, 2], [12, 2], [5, 1.5], [10, 1], [4, 1], [16, 0.7]]);
+  const R = U * 2;
+  const depth = n <= 5 ? rng.float(0.48, 0.72) : n <= 8 ? rng.float(0.7, 0.86) : rng.float(0.8, 0.9);
+  const tip = R * rng.float(0.06, 0.2);
+  const valley = R * rng.float(0.04, 0.16);
+  const base = roundedPolygon(starPoints(n, R, R * depth), (i) => (i % 2 ? valley : tip));
+
+  const inner = rng.weighted([['hole', 3], ['none', 1.5], ['dot', 1.5], ['spark', 1]]);
+  let item = base;
+  if (inner !== 'none') {
+    const wall = R * rng.float(0.16, 0.28);
+    const template = inner === 'spark' ? place(quad(R, R, -rng.float(0.6, 0.8)), 0, 0, rng.pick([0, 45])) : circle(0, 0, R);
+    const hole = fitInside(base, template, wall, rng.float(0.6, 1));
+    if (!hole) return null;
+    item = subtract(base, hole);
+    if (inner === 'dot') {
+      const dot = circle(0, 0, reach(hole) * rng.float(0.4, 0.62));
+      item = unite(item, dot);
+    }
+  }
+  return { item, symmetry: `D${n}`, limits: { tips: 0.6 } };
+}
+
+// ----------------------------------------------------------------- stripe
+// A solid shape sliced into bands, or only its lower half (a sunset).
+
+function stripe(rng) {
+  const R = U * 2;
+  const base = rng.weighted([['circle', 4], ['squircle', 3], ['diamond', 1.2], ['badge', 1]]);
+  const shape =
+    base === 'circle' ? circle(0, 0, R)
+    : base === 'squircle' ? quad(R, R, rng.float(0.75, 0.92))
+    : base === 'diamond' ? place(quad(R, R, rng.float(0.7, 0.85)), 0, 0, 45)
+    : roundedPolygon(starPoints(rng.pick([8, 12]), R, R * 0.86), R * 0.08);
+  const sunset = base === 'circle' && rng.chance(0.3);
+  const bands = sunset ? rng.int(3, 4) : rng.weighted([[3, 3], [4, 2.5], [5, 2]]);
+  const angle = sunset ? 0 : rng.weighted([[0, 4], [90, 1.2], [45, 1.5]]);
+  const gap = R * rng.float(0.09, 0.15);
+  const ease = rng.float(0, 0.6);
+
+  // cut positions eased toward a sine spacing so the end caps aren't slivers
+  const cuts = [];
+  if (sunset) {
+    for (let i = 0; i < bands; i++) {
+      const t = i / bands;
+      cuts.push(R * (ease * Math.sin((t * Math.PI) / 2) + (1 - ease) * t));
+    }
+  } else {
+    for (let i = 1; i < bands; i++) {
+      const t = -1 + (2 * i) / bands;
+      cuts.push(R * (ease * Math.sin((t * Math.PI) / 2) + (1 - ease) * t));
+    }
+  }
+  const bars = cuts.map((y) => place(rect(0, y, R * 3, gap), 0, 0, angle));
+  const item = subtract(shape, ...bars);
+  const label = sunset ? 'D1' : 'D2';
+  return { item, symmetry: label, axis: angle === 45 ? 45 : 0 };
+}
+
+// ------------------------------------------------------------------ split
+// A shape cut through the middle with its halves slid apart.
+
+function split(rng) {
+  const R = U * 2;
+  const base = rng.weighted([['circle', 3], ['squircle', 2.5], ['hexagon', 1.5], ['badge', 1]]);
+  const shape =
+    base === 'circle' ? circle(0, 0, R)
+    : base === 'squircle' ? quad(R, R, rng.float(0.72, 0.92))
+    : base === 'hexagon' ? roundedPolygon(starPoints(3, R, R, 0), R * rng.float(0.12, 0.3))
+    : roundedPolygon(starPoints(8, R, R * 0.8), R * 0.08);
+  const angle = rng.weighted([[0, 2], [90, 2], [45, 1.5]]);
+  const gap = R * rng.float(0.1, 0.18);
+  const mode = rng.weighted([['slide', 3], ['quarters', 1.2]]);
+  const big = R * 4;
+
+  let pieces;
+  if (mode === 'slide') {
+    const shift = R * rng.float(0.14, 0.34);
+    pieces = [-1, 1].map((side) => {
+      const half = intersect(shape, rect(0, side * (big / 2 + gap / 2), big, big).rotate(angle, ORIGIN));
+      const dir = new Point(Math.cos((angle * Math.PI) / 180), Math.sin((angle * Math.PI) / 180));
+      half.translate(dir.multiply(side * shift));
+      return half;
+    });
+    return { item: unite(pieces), symmetry: 'C2' };
+  }
+  // quarters pushed straight out from the center
+  const push = R * rng.float(0, 0.12);
+  pieces = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sy]) => {
+    const quarter = intersect(shape, rect(sx * (big / 2 + gap / 2), sy * (big / 2 + gap / 2), big, big));
+    quarter.translate(new Point(sx * push, sy * push));
+    return quarter;
+  });
+  return { item: unite(pieces), symmetry: base === 'hexagon' ? 'D2' : 'D4' };
+}
+
 export const FAMILIES = {
-  bloom: { build: bloom, weight: 17 },
-  lattice: { build: lattice, weight: 15 },
-  orbit: { build: orbitFamily, weight: 14 },
-  spark: { build: spark, weight: 11 },
-  ring: { build: band, weight: 10 },
-  pixel: { build: pixel, weight: 10 },
-  field: { build: field, weight: 5 },
-  tiles: { build: tiles, weight: 11 },
+  bloom: { build: bloom, weight: 8 },
+  lattice: { build: lattice, weight: 6 },
+  orbit: { build: orbitFamily, weight: 7 },
+  petal: { build: petal, weight: 10 },
+  spark: { build: spark, weight: 9 },
+  spoke: { build: spoke, weight: 9 },
+  badge: { build: badge, weight: 9 },
+  ring: { build: band, weight: 8 },
+  stripe: { build: stripe, weight: 8 },
+  split: { build: split, weight: 7 },
+  tiles: { build: tiles, weight: 8 },
+  pixel: { build: pixel, weight: 4 },
+  field: { build: field, weight: 2 },
 };
