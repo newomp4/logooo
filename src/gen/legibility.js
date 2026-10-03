@@ -359,8 +359,8 @@ export function looksOff(shape) {
   if (loops.length === 1 && whole > 0.92) return 'plain';
   // two or three plain convex pieces and nothing else
   if (loops.length <= 3 && loops.length === outer.length && outer.every((l) => Math.abs(l.area) / (hullArea(flatPoints(l)) || 1) > 0.97)) return 'sparse';
-  // nothing but separate round dots
-  if (loops.length <= 4 && loops.every((l) => l.area > 0 && (4 * Math.PI * l.area) / l.length ** 2 > 0.97)) return 'dots';
+  // nothing but separate round dots, however many
+  if (loops.every((l) => l.area > 0 && (4 * Math.PI * l.area) / l.length ** 2 > 0.97)) return 'dots';
   // a grid of identical plain boxes
   const boxy = outer.length >= 2 && loops.length === outer.length && outer.every((l) => {
     const sol = Math.abs(l.area) / (hullArea(flatPoints(l)) || 1);
@@ -432,6 +432,14 @@ function forbiddenShapes() {
     const plus = bars([[-w / 2, -1, w, 2], [-1, -w / 2, 2, w]]);
     shapes.push({ sig: signature(at100(plus)), limit: 0.8 });
     shapes.push({ sig: signature(at100(plus.clone({ insert: false }).rotate(45, [0, 0]))), limit: 0.8 });
+  }
+  // a figure-8 / snowman: two stacked discs, with or without holes in them
+  for (const gap of [0.75, 0.9]) {
+    const disc = (y, r) => new paper.Path.Circle({ center: [0, y], radius: r, insert: false });
+    const eight = disc(-gap / 2, 0.5).unite(disc(gap / 2, 0.5), { insert: false });
+    shapes.push({ sig: signature(at100(eight)), limit: 0.85 });
+    const holed = eight.subtract(disc(-gap / 2, 0.22), { insert: false }).subtract(disc(gap / 2, 0.22), { insert: false });
+    shapes.push({ sig: signature(at100(holed)), limit: 0.8 });
   }
   for (const w of [0.2, 0.3, 0.4]) {
     // a cross whose four arm ends bend the same way
@@ -599,6 +607,44 @@ export function dents(shape) {
       const dent = sum < -25;
       if (dent && !inside) count++;
       inside = dent;
+    }
+  }
+  return count;
+}
+
+// Small, shallow kinks in an otherwise smooth outline: the bump left where two
+// outlines merge at a glancing angle. A short concave dip that turns only a
+// little; deliberate waists and notches are longer or deeper.
+export function seams(shape) {
+  let count = 0;
+  for (const loop of shape.children ?? [shape]) {
+    if (loop.area <= 0) continue;
+    const length = loop.length;
+    const step = 0.3;
+    const n = Math.max(120, Math.round(length / step));
+    const pts = Array.from({ length: n }, (_, i) => loop.getPointAt((length * i) / n));
+    const turn = pts.map((p, i) => p.subtract(pts[(i - 1 + n) % n]).getDirectedAngle(pts[(i + 1) % n].subtract(p)));
+    const w = Math.max(2, Math.round(1 / (length / n)));
+    const win = turn.map((_, i) => {
+      let sum = 0;
+      for (let j = -w; j <= w; j++) sum += turn[(i + j + n) % n];
+      return sum;
+    });
+    // walk concave runs
+    let i0 = win.findIndex((v) => v >= -6);
+    if (i0 < 0) continue;
+    for (let k = 0; k < n; ) {
+      const i = (i0 + k) % n;
+      if (win[i] < -6) {
+        let len = 0;
+        let total = 0;
+        while (k < n && win[(i0 + k) % n] < -6) {
+          total += turn[(i0 + k) % n];
+          len += length / n;
+          k++;
+        }
+        if (len < 5 && total > -40) count++;
+      } else k++;
     }
   }
   return count;

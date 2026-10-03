@@ -73,6 +73,7 @@ npm run dev
 - **Links:** the URL hash holds the style and seed, so a link like `/#petal.k3j9x2` always rebuilds the same mark (`.x` on the end means asymmetric marks were allowed).
 - **Previews:** inside the main card the mark is shown as light, dark and flat-colour app icons, and at 32px and 16px. Click an icon to put the big mark on that background.
 - **Hidden:** marks you hide (✕) are remembered by silhouette; anything 72% alike or more is skipped from then on. "Show again" resets it.
+- **Taste:** styles you star come up more often and styles you hide come up less (up to 3× either way). It's per style, so links still rebuild the same mark.
 
 ## Layout
 

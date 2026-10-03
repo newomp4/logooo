@@ -1,7 +1,7 @@
 // Geometry kernel: primitives, symmetry groups, boolean ops and the final
 // clean-up pass that turns a paper.js item into a normalized SVG path.
 import paper from 'paper/dist/paper-core.js';
-import { detailScore, signature as silhouette, offCenter, detectSymmetry, tooPlain, looksOff, solidity, forbidden, fineShare, spikes, dents, sharpCorners, widestGap } from './legibility.js';
+import { detailScore, signature as silhouette, offCenter, detectSymmetry, tooPlain, looksOff, solidity, forbidden, fineShare, spikes, dents, sharpCorners, widestGap, seams } from './legibility.js';
 
 paper.setup(new paper.Size(1, 1));
 paper.settings.insertItems = false;
@@ -487,8 +487,8 @@ export function finalize(
   if (fineShare(shape) > maxFine) return null;
   const points = spikes(shape);
   if (points > maxSpikes) return null;
-  // fully rounded marks shouldn't keep any sharp corner
-  if (smooth && sharpCorners(shape) > 0) return null;
+  // fully rounded marks shouldn't keep any sharp corner, or seam bumps
+  if (smooth && (sharpCorners(shape) > 0 || seams(shape) > 0)) return null;
   // pieces that drift apart stop reading as one mark
   if (widestGap(shape) > maxGap) return null;
 

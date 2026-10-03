@@ -70,7 +70,17 @@ function build(seed, mode, loose = false) {
 }
 
 const sigOf = (entry) => (entry.sig ??= signatureOf(entry.d));
-const isHidden = (sig) => state.hidden.some((h) => likeness(h, sig) >= HIDDEN_ALIKE);
+// hidden marks are stored as { sig, family } (older ones as a bare sig)
+const hiddenSig = (h) => (typeof h === 'string' ? h : h.sig);
+const isHidden = (sig) => state.hidden.some((h) => likeness(hiddenSig(h), sig) >= HIDDEN_ALIKE);
+
+// Styles you star come up more, styles you hide come up less. Kept per style
+// (not per mark) so a link still rebuilds the exact same mark.
+function taste(name) {
+  const saves = state.saved.filter((e) => e.family === name).length;
+  const hides = state.hidden.filter((h) => typeof h !== 'string' && h.family === name).length;
+  return Math.min(3, Math.max(0.3, (1 + 0.5 * saves) / (1 + 0.5 * hides)));
+}
 
 // ---------------------------------------------------------------- render
 
@@ -202,7 +212,7 @@ function pickFamily() {
     const at = recent.indexOf(name);
     // procedural marks differ every time, so they never need a break
     const damp = name === 'form' || at === -1 ? 1 : at < 2 ? 0.15 : 0.5;
-    return [name, FAMILY_INFO[name].weight * damp];
+    return [name, FAMILY_INFO[name].weight * damp * taste(name)];
   });
   let roll = Math.random() * pool.reduce((sum, [, w]) => sum + w, 0);
   for (const [name, w] of pool) {
@@ -315,7 +325,7 @@ function hide() {
   const entry = current();
   if (!entry) return;
   const id = idOf(entry);
-  state.hidden = [sigOf(entry), ...state.hidden].slice(0, MAX_HIDDEN);
+  state.hidden = [{ sig: sigOf(entry), family: entry.family }, ...state.hidden].slice(0, MAX_HIDDEN);
   state.history = state.history.filter((e) => idOf(e) !== id);
   state.similar = state.similar.filter((e) => idOf(e) !== id);
   persist();

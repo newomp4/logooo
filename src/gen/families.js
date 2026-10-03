@@ -882,14 +882,14 @@ function dash(rng) {
 
 // `loose` families only appear when asymmetric marks are allowed.
 export const FAMILIES = {
-  form: { build: form, plan: formPlan, weight: 120, pick: 4 },
+  form: { build: form, plan: formPlan, weight: 45, pick: 4 },
   carve: { build: carve, weight: 14 },
   pair: { build: pair, weight: 7 },
   block: { build: block, weight: 1 },
   tetro: { build: tetro, weight: 5 },
   cloud: { build: cloud, weight: 2 },
   soft: { build: soft, weight: 7 },
-  stroke: { build: stroke, weight: 6 },
+  stroke: { build: stroke, weight: 3 },
   dash: { build: dash, weight: 5 },
   arch: { build: arch, weight: 4 },
   petal: { build: petal, weight: 4 },

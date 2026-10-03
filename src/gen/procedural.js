@@ -8,7 +8,7 @@
 // then every corner gets a live-corner fillet. Each step's choices are random,
 // so marks don't fall into a handful of recognisable recipes. generate() grows
 // a few of these per mark and keeps the one that scores best.
-import { ORIGIN, Point, circle, ellipse, rect, roundedPolygon, ring, leaf, unite, subtract, intersect, xor, clearance } from './geom.js';
+import { ORIGIN, Path, Point, circle, ellipse, rect, roundedPolygon, ring, leaf, unite, subtract, intersect, xor, clearance } from './geom.js';
 import { arcStroke, annulus, wedge, roundCorners } from './shapes.js';
 
 const U = 10;
@@ -42,8 +42,8 @@ function primitive(rng, size, kind) {
     const h = size * rng.float(0.4, 0.6);
     const lean = h * rng.float(0.3, 0.9) * rng.pick([1, -1]);
     const pts = [[-w / 2 - lean / 2, h / 2], [w / 2 - lean / 2, h / 2], [w / 2 + lean / 2, -h / 2], [-w / 2 + lean / 2, -h / 2]];
-    const radii = pts.map(() => h * rng.pick([0.12, 0.12, 0.45]));
-    item = roundedPolygon(pts, (i) => radii[i]);
+    // one radius for every corner: mixing tight and round corners looks off
+    item = roundedPolygon(pts, h * rng.pick([0.12, 0.2, 0.32]));
   } else if (kind === 'poly') {
     const n = rng.pick([5, 6]);
     item = roundedPolygon(ring(n, size * 0.55, rng.pick([0, 180 / n])), size * rng.float(0.08, 0.18));
@@ -74,7 +74,8 @@ function motif(rng, family) {
   // notches; the only motif moves now are an exact twin and a centred hole
   // (purposeful cuts happen once, on the whole mark, in finish())
   // twin discs make figure-8s, which came up far too often
-  const steps = family === 'poly' || family === 'leaf' ? 0 : rng.weighted(family === 'round' ? [[0, 3], [1, 1]] : [[0, 3], [1, 2.4]]);
+  // round motifs stay single discs and ovals: twinned they make figure-8s
+  const steps = family === 'poly' || family === 'leaf' || family === 'round' ? 0 : rng.weighted([[0, 3], [1, 2.4]]);
   for (let i = 0; i < steps; i++) {
     // a hole only goes into a lone primitive, with room all round it: punched
     // into a twin it lands near an edge and leaves odd notches
@@ -93,7 +94,7 @@ function motif(rng, family) {
       const hole = primitive(rng, size() * rng.float(0.4, 0.55), firstKind);
       hole.translate(item.bounds.center);
       const inside = [hole.bounds.topLeft, hole.bounds.topRight, hole.bounds.bottomLeft, hole.bounds.bottomRight].every((pt) => item.contains(pt));
-      if (inside && clearance(hole, item) > size() * 0.12) item = subtract(item, hole);
+      if (inside && clearance(hole, item) > size() * 0.2) item = subtract(item, hole);
       break;
     }
   }
@@ -116,6 +117,11 @@ export function formPlan(rng, opts = {}) {
     : mode === 'dihedral' ? rng.weighted([[2, 1.6], [3, 0.3], [4, 2], [5, 0.4], [6, 0.5]])
     : mode === 'alone' ? 1
     : 2;
+  // discs and ovals only work as rings and crosses (three or more around a
+  // centre); mirrored or turned in pairs they melt into peanuts and 8s
+  if (family === 'round' && n < 3) {
+    return { mode: rng.chance(0.5) ? 'spin' : 'dihedral', n: rng.weighted([[3, 0.5], [4, 2], [5, 0.8], [6, 1]]), family };
+  }
   return { mode, n, family };
 }
 
@@ -173,19 +179,36 @@ function arrange(rng, m, plan) {
   return { item, mode, n };
 }
 
+// four quarter-circle bites out of a square leave a concave four-point star
+function concaveStar(s) {
+  return subtract(rect(0, 0, 2 * s, 2 * s), ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([i, j]) => circle(i * s, j * s, s)));
+}
+
+// The purposeful cuts from the references, made once on the whole mark: a
+// slit that may open into a diamond, lens or star in the middle; a centred
+// opening; a round trim.
 function finish(rng, arr) {
   let item = arr.item;
   const reach = Math.max(item.bounds.width, item.bounds.height) / 2;
-  const slitFits = arr.mode === 'mirror' || arr.mode === 'turn' || (arr.mode === 'dihedral' && arr.n % 2 === 0);
-  const op = rng.weighted([['none', 4], ['trim', 1.6], ['open', 1.2], ['slit', slitFits ? 1 : 0]]);
+  const solid = (item.children?.filter((c) => c.area > 0).length ?? 1) === 1;
+  const slitFits = solid && (arr.mode === 'mirror' || arr.mode === 'turn' || (arr.mode === 'dihedral' && arr.n % 2 === 0));
+  const op = rng.weighted([['none', 2.5], ['trim', 1.2], ['open', solid ? 1.4 : 0], ['slit', slitFits ? 2 : 0]]);
+  const middle = (s) => {
+    const kind = rng.weighted([['circle', 1.5], ['diamond', 1.5], ['lens', 1.2], ['star', 1.5]]);
+    if (kind === 'circle') return circle(0, 0, s);
+    if (kind === 'diamond') return new Path({ segments: [[s * 1.5, 0], [0, s], [-s * 1.5, 0], [0, -s]], closed: true });
+    if (kind === 'lens') return ellipse(0, 0, s * 1.6, s * 0.65);
+    return concaveStar(s * 0.9);
+  };
   if (op === 'trim') {
-    // cut the outer edge into a round silhouette
     item = intersect(item, circle(0, 0, reach * rng.float(0.78, 0.94)));
   } else if (op === 'open' && item.contains(ORIGIN)) {
-    item = subtract(item, circle(0, 0, reach * rng.float(0.16, 0.3)));
-  } else if (op === 'slit' && (item.children?.filter((c) => c.area > 0).length ?? 1) === 1) {
-    // only through one solid shape: slitting separate pieces leaves half-ovals
-    item = subtract(item, rect(0, 0, reach * 4, reach * rng.float(0.08, 0.14)));
+    item = subtract(item, middle(reach * rng.float(0.16, 0.28)));
+  } else if (op === 'slit') {
+    const cuts = [rect(0, 0, reach * 4, reach * rng.float(0.08, 0.13))];
+    if (rng.chance(0.6)) cuts.push(middle(reach * rng.float(0.16, 0.26)));
+    const turn = rng.pick([0, 90]);
+    item = subtract(item, ...cuts.map((c) => c.rotate(turn, ORIGIN)));
   }
   return item;
 }
