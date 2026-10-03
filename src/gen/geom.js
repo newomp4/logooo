@@ -1,7 +1,7 @@
 // Geometry kernel: primitives, symmetry groups, boolean ops and the final
 // clean-up pass that turns a paper.js item into a normalized SVG path.
 import paper from 'paper/dist/paper-core.js';
-import { detailScore, signature as silhouette, offCenter, detectSymmetry, tooPlain } from './legibility.js';
+import { detailScore, signature as silhouette, offCenter, detectSymmetry, tooPlain, looksOff, solidity, forbidden } from './legibility.js';
 
 paper.setup(new paper.Size(1, 1));
 paper.settings.insertItems = false;
@@ -441,6 +441,7 @@ export function finalize(
     balance,
     symTolerance = 0.01,
     minAspect = 0.28,
+    maxNodes = 170,
     loose = false,
   } = {},
   symmetry,
@@ -477,7 +478,7 @@ export function finalize(
     if (label === 'C1' && !loose) return null;
     if (label === 'C1' && offCenter(shape) > (balance ?? 0.07)) return null;
   } else if (symmetry && !isSymmetric(shape, symmetry, symTolerance)) return null;
-  if (tooPlain(shape)) return null;
+  if (tooPlain(shape) || looksOff(shape) || forbidden(shape)) return null;
 
   const { width, height } = shape.bounds;
   const area = Math.abs(shape.area);
@@ -487,7 +488,7 @@ export function finalize(
   if (Math.min(width, height) < minAspect * 100) return null;
   // a lone disc, square or diamond isn't a mark
   const nodes = shape.children.reduce((sum, c) => sum + c.segments.length, 0);
-  if (nodes < minNodes) return null;
+  if (nodes < minNodes || nodes > maxNodes) return null;
   if (shape.children.length === 1 && (Math.abs(fill - Math.PI / 4) < 0.012 || fill > 0.97)) return null;
 
   // asymmetric marks still need their visual weight near the middle
@@ -506,5 +507,7 @@ export function finalize(
     detail: +detail.toFixed(3),
     sig: silhouette(shape),
     symmetry: label,
+    solidity: +solidity(shape).toFixed(3),
+    nodes,
   };
 }

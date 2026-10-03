@@ -7,6 +7,7 @@ import {
 } from './geom.js';
 import { capsule, arcStroke, annulus, polygon, wedge, roundCorners } from './shapes.js';
 import { carve, pair, block, tetro, cloud } from './compose.js';
+import { form } from './procedural.js';
 
 const U = 10; // base spacing; everything is rescaled at the end
 
@@ -464,7 +465,6 @@ function petal(rng) {
 // Asterisks and suns built from rounded bars.
 
 function spoke(rng) {
-  if (rng.chance(0.25)) return spokeClip(rng);
   const n = rng.weighted([[6, 3], [8, 2.5], [4, 1.5], [3, 1.5], [5, 1.2], [12, 0.6]]);
   const R = U * 2;
   const w = R * (n >= 8 ? rng.float(0.16, 0.26) : rng.float(0.22, 0.36));
@@ -492,25 +492,6 @@ function spoke(rng) {
     item = subtract(item, circle(0, 0, w * rng.float(0.32, 0.45)));
   }
   return { item, symmetry: `D${n}`, limits: { tips: end === 'taper' ? 0.4 : 1, minFill: 0.12 } };
-}
-
-// Flat bars through the center, mirrored left/right, with the lower ends
-// trimmed by a circle so the mark sits on a round base.
-function spokeClip(rng) {
-  const R = U * 2;
-  const w = R * rng.float(0.18, 0.28);
-  const tilts = [0];
-  for (let i = rng.int(1, 2); i > 0; i--) tilts.push(rng.float(30, 75));
-  const bars = [];
-  for (const t of new Set(tilts)) {
-    bars.push(place(rect(0, 0, w, R * 2.4), 0, 0, t));
-    if (t) bars.push(place(rect(0, 0, w, R * 2.4), 0, 0, -t));
-  }
-  if (rng.chance(0.4)) bars.push(rect(0, 0, R * 2.4, w));
-  const base = unite(circle(0, 0, R * rng.float(0.92, 1.02)), rect(0, -R * 1.5, R * 4, R * 3));
-  let item = intersect(unite(bars), base);
-  if (rng.chance(0.3)) item = subtract(item, circle(0, 0, w * 0.42));
-  return { item, symmetry: 'D1' };
 }
 
 // ------------------------------------------------------------------ badge
@@ -720,8 +701,9 @@ function split(rng) {
 // joins.
 
 function stroke(rng, opts = {}) {
-  const presets = [['gooey', 3], ['loops', 2], ['turbine', 1.5], ['pair', 1]];
-  if (opts.loose) presets.push(['splat', 3]);
+  // loops can cross each other awkwardly and splats turn into stick figures, so both stay rare
+  const presets = [['gooey', 3], ['turbine', 1.5], ['pair', 1], ['loops', 0.6]];
+  if (opts.loose) presets.push(['splat', 0.8]);
   const preset = rng.weighted(presets);
   const L = U * 2;
   let item;
@@ -899,6 +881,7 @@ function dash(rng) {
 
 // `loose` families only appear when asymmetric marks are allowed.
 export const FAMILIES = {
+  form: { build: form, weight: 120, pick: 4 },
   carve: { build: carve, weight: 14 },
   pair: { build: pair, weight: 7 },
   block: { build: block, weight: 1 },

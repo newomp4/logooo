@@ -8,7 +8,15 @@ Every mark is built the way you'd build it in Illustrator: exact circles, ellips
 
 ## Styles
 
-The main styles are compositional: each picks from a small vocabulary (containers, cuts, slabs, pieces) and combines a few at random, so they land on new marks rather than recreating a reference. Their symmetry is measured after the fact.
+**Form** (the default, about 60% of marks) is procedural. Each mark is grown by a small random program, the way a designer sketches:
+
+1. **Motif:** one primitive (disc, oval, rounded box, leaning slab, arc band, bent stroke, quarter disc, leaf or polygon), sometimes with another attached to its edge, a notch bitten out or a hole punched in.
+2. **Arrangement:** the motif spun around a centre, mirrored, turned 180°, or (asymmetric mode) left alone. Copies either clearly merge or clearly stand apart.
+3. **Finish:** sometimes trimmed into a round silhouette, opened in the middle, or slit.
+
+Four candidates are grown per mark and the one that scores best wins (`appeal()` in `legibility.js`). The score rewards balanced ink, real negative space, a few strong pieces and symmetry, and it penalizes busyness, measured by anchor-point count.
+
+The other styles are curated recipes that fill in the rest:
 
 | Style | What it makes |
 | --- | --- |
@@ -30,7 +38,8 @@ On by default: every mark has mirror and/or rotational symmetry. Switch it off t
 
 Before a mark is shown it has to pass two checks, or it's rerolled:
 
-- **Geometry:** no slivers, no specks, balanced ink coverage, intact symmetry (a failed boolean op breaks it), not too flat, and not too plain: a nest of convex shapes around one centre (a disc, a plain ring, a target) is rejected.
+- **Geometry:** no slivers, no specks, balanced ink coverage, intact symmetry (a failed boolean op breaks it), and not too flat. It also rejects things that read as accidents: a nest of convex shapes around one centre (a disc, a plain ring, a target), a plain blob with a nick out of it, a grid of plain boxes, two or three plain pieces, bare dots, and leftover boolean slivers.
+- **Never:** a plain plus or X, or a hooked cross in either direction. Every mark's silhouette is compared against those templates and rejected if it's close.
 - **Legibility** (`src/gen/legibility.js`): the mark is rasterized at 64px, the way it would appear as an app icon, and scored on ink thinner than ~5% of its size, gaps narrower than that, specks, how many separate pieces and holes the eye would count, and small satellites floating away from the main body. Busy marks score high and get dropped.
 
 ### Fewer repeats
@@ -71,6 +80,7 @@ src/
     geom.js       primitives, symmetry groups, booleans, contour tracing, clean-up and checks
     shapes.js     exact strokes, arcs, rings, wedges and live-corner fillets
     legibility.js icon-size raster check, symmetry detection, balance, plainness, fingerprints
+    procedural.js the procedural Form style
     compose.js    compositional styles (carve, pair, block, tetro, cloud)
     families.js   the other styles and the weights
     index.js      generate(seed, family)

@@ -200,7 +200,8 @@ function pickFamily() {
   const recent = state.history.slice(0, 5).map((e) => e.family);
   const pool = FAMILY_NAMES.filter((name) => !state.strict || !FAMILY_INFO[name].loose).map((name) => {
     const at = recent.indexOf(name);
-    const damp = at === -1 ? 1 : at < 2 ? 0.15 : 0.5;
+    // procedural marks differ every time, so they never need a break
+    const damp = name === 'form' || at === -1 ? 1 : at < 2 ? 0.15 : 0.5;
     return [name, FAMILY_INFO[name].weight * damp];
   });
   let roll = Math.random() * pool.reduce((sum, [, w]) => sum + w, 0);
@@ -250,7 +251,7 @@ async function findSimilar() {
   renderList();
 
   const pool = [];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 28; i++) {
     const candidate = build(randomSeed(), base.family, base.loose ?? !state.strict);
     if (candidate && !isHidden(candidate.sig)) {
       const near = likeness(baseSig, candidate.sig);
