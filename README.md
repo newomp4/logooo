@@ -40,6 +40,17 @@ Strokes, chevrons, arches, arcs and channels are drawn as one exact outline (off
 | Strokes | A bent stroke and its 180° turn |
 | Bloom | Circles on a grid or ring melted into a scalloped frame (the circle-grid look) |
 | Cloud | Circles bunched and filleted into a soft body, filled or outlined, sometimes with eyes |
+| Line, Carve, Pieces | Procedural, see below |
+
+### Procedural styles
+
+**Line**, **Carve** and **Pieces** don't start from a reference; they grow each mark from scratch out of the same parts (`src/gen/procedural.js`):
+
+- **Line:** a stroke wanders a 45° lattice with one to three rounded bends, never doubling back or crossing itself. It's often symmetric by construction: half a stroke reflected across an axis (V, W, U shapes) or turned 180° about the middle (S, Z, N shapes). Then it's laid out as a 180° pair, a mirrored pair, four mirrored corners, or a ring.
+- **Pieces:** three to five grid cells grown into a block and rounded, or a soft shape (oval, squircle, pill, half disc), laid out the same way. Soft shapes always overlap, sometimes cancelling where they meet.
+- **Carve:** a body (circle, squircle, rounded square, octagon, hexagon, pill) with a symmetric procedural channel run right through it, or procedural pieces punched through as holes, keeping thick walls.
+
+Layouts follow each piece's own symmetry: a ring only takes pieces with a mirror axis, set along the radius, so nothing turns into a pinwheel. Spacing is measured rather than guessed: copies are slid apart until they keep a set gap, or overlap by a set share, so they never just graze each other.
 
 Two candidates are grown for each mark and one of those scoring close to the best is picked at random (`appeal()` in `legibility.js`). The score rewards balanced ink, real negative space and a few strong pieces.
 
@@ -98,7 +109,8 @@ src/
     shapes.js     exact strokes, arcs, wedges and live-corner fillets
     legibility.js icon-size raster check, symmetry detection, balance, plainness, fingerprints
     blend.js      the reference recipes, and re-rolling and crossing them
-    families.js   the styles (recipes plus bloom and cloud) and their weights
+    procedural.js the procedural styles: line, carve, pieces
+    families.js   the styles (recipes, procedural, bloom and cloud) and their weights
     index.js      generate(seed, family)
   export.js       SVG / PNG / clipboard
   palette.js      flat colour pairs for the colour icon

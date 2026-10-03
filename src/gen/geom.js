@@ -173,7 +173,7 @@ export function reach(item) {
 export function fitInside(container, template, gap, maxScale = 1) {
   const inner = samples(template, 64);
   const outer = samples(container, 240);
-  const probe = template.getPointAt(0);
+  const probe = (template.children?.[0] ?? template).getPointAt(0);
   let lo = 0;
   let hi = maxScale;
   for (let i = 0; i < 12; i++) {

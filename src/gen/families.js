@@ -1,9 +1,11 @@
-// The styles. Most grow from the reference recipes in blend.js; bloom and
-// cloud are built directly from circles. Each turns a seeded rng into a
+// The styles. Most grow from the reference recipes in blend.js; line, carve
+// and pieces are grown from scratch in procedural.js; bloom and cloud are
+// built directly from circles. Each turns a seeded rng into a
 // paper.js shape, or null when a roll doesn't produce something worth keeping.
 import { ORIGIN, circle, ellipse, rect, quad, place, grid, ring, unite, subtract, reach, fitInside } from './geom.js';
 import { roundCorners } from './shapes.js';
 import { blendFrom } from './blend.js';
+import { line, pieces, carve } from './procedural.js';
 
 const U = 10; // base spacing; everything is rescaled at the end
 const R = U * 2;
@@ -110,6 +112,9 @@ const blend = (anchor, weight) => ({ build: blendFrom(anchor), weight, pick: 2 }
 // The first ones are featured in the style picker; the rest fold behind "More".
 export const FAMILIES = {
   split: blend('split', 5),
+  line: { build: line, weight: 7, pick: 2 },
+  carve: { build: carve, weight: 7, pick: 2 },
+  pieces: { build: pieces, weight: 6, pick: 2 },
   channel: blend('channel', 4),
   window: blend('window', 3.5),
   quads: blend('quads', 4),

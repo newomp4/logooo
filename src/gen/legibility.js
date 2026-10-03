@@ -430,8 +430,8 @@ function forbiddenShapes() {
   const shapes = [];
   for (const w of [0.22, 0.3, 0.4, 0.5]) {
     const plus = bars([[-w / 2, -1, w, 2], [-1, -w / 2, 2, w]]);
-    shapes.push({ sig: signature(at100(plus)), limit: 0.8 });
-    shapes.push({ sig: signature(at100(plus.clone({ insert: false }).rotate(45, [0, 0]))), limit: 0.8 });
+    shapes.push({ sig: signature(at100(plus)), limit: 0.72 });
+    shapes.push({ sig: signature(at100(plus.clone({ insert: false }).rotate(45, [0, 0]))), limit: 0.72 });
   }
   // a figure-8 / snowman: two stacked discs, with or without holes in them
   for (const gap of [0.75, 0.9]) {
