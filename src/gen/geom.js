@@ -1,13 +1,13 @@
 // Geometry kernel: primitives, symmetry groups, boolean ops and the final
 // clean-up pass that turns a paper.js item into a normalized SVG path.
 import paper from 'paper/dist/paper-core.js';
-import { detailScore } from './legibility.js';
+import { detailScore, signature as silhouette, offCenter } from './legibility.js';
 
 paper.setup(new paper.Size(1, 1));
 paper.settings.insertItems = false;
 
 const { Path, CompoundPath, Matrix, Point, Segment } = paper;
-export { Path, Point };
+export { paper, Path, Point };
 
 export const K = 0.5522847498; // cubic handle ratio for a quarter circle
 export const ORIGIN = new Point(0, 0);
@@ -118,6 +118,112 @@ export function roundedPolygon(points, radius) {
     segments.push(new Segment(v.add(d2.multiply(t)), d2.multiply(-h), [0, 0]));
   }
   return new Path({ segments, closed: true });
+}
+
+// Smooth closed curve r(θ) = r·(1 + Σ amp·cos(k·n·θ + phase)) with n-fold symmetry.
+// harmonics: [[k, amp, phase], ...]; zero phases keep it mirror-symmetric too.
+export function polar(r, n, harmonics, perSector = 8) {
+  const count = n * perSector;
+  const segments = [];
+  for (let i = 0; i < count; i++) {
+    const a = (2 * Math.PI * i) / count - Math.PI / 2;
+    const t = a + Math.PI / 2;
+    let f = 1;
+    for (const [k, amp, phase = 0] of harmonics) f += amp * Math.cos(k * n * t + phase);
+    segments.push(new Point(Math.cos(a) * r * f, Math.sin(a) * r * f));
+  }
+  const path = new Path({ segments, closed: true });
+  path.smooth({ type: 'catmull-rom', factor: 0.5 });
+  return path;
+}
+
+// Contours of field(x, y) = level over [-half, half]², traced with marching
+// squares and fitted with smooth curves. The field must fall below `level`
+// at the edges so every contour closes.
+export function isoContour(field, half, res = 140, level = 1, spacing = 1.6) {
+  const n = res + 1;
+  const step = (2 * half) / res;
+  const v = new Float64Array(n * n);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) v[j * n + i] = field(-half + i * step, -half + j * step) - level;
+  }
+  const at = (i, j) => v[j * n + i];
+  // edge ids: horizontal (i,j)→(i+1,j) is even, vertical (i,j)→(i,j+1) is odd
+  const H = (i, j) => (j * n + i) * 2;
+  const V = (i, j) => (j * n + i) * 2 + 1;
+  const point = (id) => {
+    const cell = id >> 1;
+    const i = cell % n;
+    const j = (cell / n) | 0;
+    const a = at(i, j);
+    const b = id & 1 ? at(i, j + 1) : at(i + 1, j);
+    const t = a / (a - b);
+    return id & 1 ? new Point(-half + i * step, -half + (j + t) * step) : new Point(-half + (i + t) * step, -half + j * step);
+  };
+
+  const links = new Map();
+  const link = (a, b) => {
+    for (const [x, y] of [[a, b], [b, a]]) {
+      if (!links.has(x)) links.set(x, []);
+      links.get(x).push(y);
+    }
+  };
+  for (let j = 0; j < res; j++) {
+    for (let i = 0; i < res; i++) {
+      const c0 = at(i, j) > 0;
+      const c1 = at(i + 1, j) > 0;
+      const c2 = at(i + 1, j + 1) > 0;
+      const c3 = at(i, j + 1) > 0;
+      const T = H(i, j);
+      const B = H(i, j + 1);
+      const L = V(i, j);
+      const R = V(i + 1, j);
+      const centre = (at(i, j) + at(i + 1, j) + at(i + 1, j + 1) + at(i, j + 1)) / 4 > 0;
+      switch (c0 | (c1 << 1) | (c2 << 2) | (c3 << 3)) {
+        case 1: case 14: link(L, T); break;
+        case 2: case 13: link(T, R); break;
+        case 3: case 12: link(L, R); break;
+        case 4: case 11: link(R, B); break;
+        case 6: case 9: link(T, B); break;
+        case 7: case 8: link(L, B); break;
+        case 5:
+          if (centre) { link(T, R); link(B, L); } else { link(L, T); link(R, B); }
+          break;
+        case 10:
+          if (centre) { link(L, T); link(R, B); } else { link(T, R); link(B, L); }
+          break;
+      }
+    }
+  }
+
+  const done = new Set();
+  const paths = [];
+  for (const start of links.keys()) {
+    if (done.has(start)) continue;
+    const loop = [start];
+    done.add(start);
+    let prev = start;
+    let cur = links.get(start)[0];
+    while (cur !== undefined && cur !== start && !done.has(cur)) {
+      loop.push(cur);
+      done.add(cur);
+      const next = links.get(cur).find((x) => x !== prev);
+      prev = cur;
+      cur = next;
+    }
+    if (loop.length < 8) continue;
+    const raw = new Path({ segments: loop.map(point), closed: true });
+    // even resampling + catmull-rom stays true to the contour; paper's
+    // simplify() distorts closed loops around their seam
+    const count = Math.max(16, Math.min(160, Math.round(raw.length / spacing)));
+    const path = new Path({
+      segments: Array.from({ length: count }, (_, k) => raw.getPointAt((raw.length * k) / count)),
+      closed: true,
+    });
+    path.smooth({ type: 'catmull-rom', factor: 0.5 });
+    paths.push(path);
+  }
+  return paths.length ? new CompoundPath({ children: paths }) : null;
 }
 
 // --------------------------------------------------------------- layouts
@@ -384,6 +490,7 @@ function isSymmetric(shape, { label, axis = 0 }) {
   const checks = [];
   if (+order > 1) checks.push(new Matrix().rotate(360 / +order, c));
   if (kind === 'D') checks.push(new Matrix().rotate(axis, c).scale(-1, 1, c).rotate(-axis, c));
+  if (!checks.length) return true;
   const { x, y, width, height } = shape.bounds;
   const N = 28;
   let bad = 0;
@@ -411,7 +518,7 @@ function fit(item) {
 // with slivers or an unbalanced amount of ink.
 export function finalize(
   item,
-  { minFill = 0.16, maxFill = 0.86, minFeature = 1.15, minPart = 30, minNodes = 5, maxDetail = 0.2, tips = 1, freePieces = 5 } = {},
+  { minFill = 0.16, maxFill = 0.86, minFeature = 1.15, minPart = 30, minNodes = 5, maxDetail = 0.2, tips = 1, freePieces = 5, balance } = {},
   symmetry,
 ) {
   if (!item || item.isEmpty()) return null;
@@ -452,6 +559,9 @@ export function finalize(
   if (nodes < minNodes) return null;
   if (shape.children.length === 1 && (Math.abs(fill - Math.PI / 4) < 0.012 || fill > 0.97)) return null;
 
+  // asymmetric marks still need their visual weight near the middle
+  if (balance && offCenter(shape) > balance) return null;
+
   // too much fine detail to read as a logo at icon size
   const detail = detailScore(shape, { tips, freePieces });
   if (detail > maxDetail) return null;
@@ -463,5 +573,6 @@ export function finalize(
     fill: +fill.toFixed(3),
     parts: shape.children.length,
     detail: +detail.toFixed(3),
+    sig: silhouette(shape),
   };
 }

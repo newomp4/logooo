@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>logooo</title>
-    <meta name="description" content="Symmetric logo marks from circles, sparks and grids. One click to copy as SVG or PNG." />
+    <meta name="description" content="Geometric logo marks, symmetric by default. One click to copy as SVG or PNG." />
     <meta name="theme-color" content="#111111" />
     <link rel="icon" id="favicon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,12 +18,11 @@
           logooo <span class="slash" aria-hidden="true">/</span>
           <a class="handle" href="https://x.com/newomp4" target="_blank" rel="noopener noreferrer">@newomp4<span class="handle-arrow" aria-hidden="true">↗</span></a>
         </h1>
-        <p class="lede rise" style="--d: 0.05s">Symmetric marks from circles, sparks and grids. Press <kbd>space</kbd> for another.</p>
+        <p class="lede rise" style="--d: 0.05s">Geometric logo marks, symmetric by default. Press <kbd>space</kbd> for another.</p>
       </header>
 
       <section class="stage rise" style="--d: 0.1s" aria-label="Current mark">
-        <div class="canvas" id="canvas"></div>
-        <div class="stage-meta">
+        <div class="stage-top">
           <span class="info" id="info" aria-live="polite"></span>
           <span class="nav">
             <button class="icon-btn star" id="save" type="button" aria-pressed="false" aria-label="Save mark" title="Save (f)">
@@ -32,6 +31,15 @@
             <button class="icon-btn" id="older" type="button" aria-label="Previous mark" title="Previous (←)">←</button>
             <button class="icon-btn" id="newer" type="button" aria-label="Next mark" title="Next (→)">→</button>
           </span>
+        </div>
+        <div class="canvas" id="canvas"></div>
+        <div class="previews" aria-label="As an app icon and at small sizes">
+          <div class="icon icon--light" data-tile title="Light icon"></div>
+          <div class="icon icon--dark" data-tile title="Dark icon"></div>
+          <div class="icon icon--tint" data-tile title="Colour icon"></div>
+          <span class="previews-divider" aria-hidden="true"></span>
+          <span class="size" data-tile title="32px"></span>
+          <span class="size size--small" data-tile title="16px"></span>
         </div>
       </section>
 
@@ -53,20 +61,18 @@
         </div>
       </div>
 
-      <section class="previews rise" style="--d: 0.2s" aria-label="As an app icon and at small sizes">
-        <div class="icon icon--light" data-tile></div>
-        <div class="icon icon--dark" data-tile></div>
-        <div class="icon icon--color" data-tile><div class="mesh" aria-hidden="true"></div></div>
-        <div class="sizes">
-          <span class="size" data-tile title="32px"></span>
-          <span class="size size--small" data-tile title="16px"></span>
-        </div>
-      </section>
-
       <dl class="rows">
         <div class="row rise" style="--d: 0.25s">
           <dt>Style</dt>
           <dd class="chips" id="families"></dd>
+        </div>
+        <div class="row rise" style="--d: 0.28s">
+          <dt>Shape</dt>
+          <dd class="chips">
+            <button class="switch" id="strict" type="button" role="switch" aria-checked="true">
+              <span class="track" aria-hidden="true"><span class="knob"></span></span>Symmetric only
+            </button>
+          </dd>
         </div>
         <div class="row rise" style="--d: 0.3s">
           <dt>Ink</dt>

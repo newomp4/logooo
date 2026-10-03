@@ -1,10 +1,11 @@
 // Each family turns a seeded rng into a symmetric paper.js shape.
 // They return null when a roll doesn't produce something worth keeping.
 import {
-  K, ORIGIN, Path, Point, circle, ellipse, rect, quad, place, shear, leaf, drop, starPoints, roundedPolygon,
+  K, ORIGIN, Path, Point, circle, ellipse, rect, quad, place, shear, leaf, drop, starPoints, roundedPolygon, polar, isoContour,
   grid, ring, group, orbit,
   unite, xor, subtract, intersect, clearance, reach, fitInside, gridOutline, compound,
 } from './geom.js';
+import * as sd from './sdf.js';
 
 const U = 10; // base spacing; everything is rescaled at the end
 
@@ -181,7 +182,8 @@ function orbitFamily(rng) {
 // Concave four-point stars on their own, in clusters, or cut out of a solid.
 
 function spark(rng) {
-  const preset = rng.weighted([['single', 1.3], ['cluster', 3], ['cross', 2], ['halo', 1.2], ['aperture', 2.5]]);
+  // the bold cut-out reads best; spiky clusters are kept rare
+  const preset = rng.weighted([['aperture', 3], ['single', 1.2], ['cluster', 1], ['halo', 0.5]]);
   const pinch = -rng.float(0.78, 0.93);
   let symmetry = 'D4';
   let limits;
@@ -198,15 +200,11 @@ function spark(rng) {
       symmetry = 'D2';
     }
     limits = { minFill: 0.05, minFeature: 0.6, minNodes: 4, tips: 0.25 };
-  } else if (preset === 'cluster' || preset === 'cross') {
+  } else if (preset === 'cluster') {
     const d = U;
     const s = d * rng.float(1.0, 1.35);
-    const pts = preset === 'cluster' ? grid(2, 2, 2 * d) : ring(4, d * 1.3);
-    const rot = preset === 'cross' ? rng.pick([0, 45]) : 0;
-    const stars = pts.map(([x, y]) => place(quad(s, s, pinch), x, y, rot));
-    const center = rng.weighted([['circle', 3], ['spark', 1], ['none', 1]]);
-    if (center === 'circle') stars.push(circle(0, 0, d * rng.float(0.3, 0.55)));
-    if (center === 'spark') stars.push(place(quad(s * 0.7, s * 0.7, pinch), 0, 0, 45));
+    const stars = grid(2, 2, 2 * d).map(([x, y]) => place(quad(s, s, pinch), x, y));
+    if (rng.chance(0.7)) stars.push(circle(0, 0, d * rng.float(0.3, 0.55)));
     item = unite(stars);
     limits = { minFill: 0.1, minFeature: 0.8, tips: 0.3 };
   } else if (preset === 'halo') {
@@ -465,6 +463,7 @@ function petal(rng) {
 // Asterisks and suns built from rounded bars.
 
 function spoke(rng) {
+  if (rng.chance(0.25)) return spokeClip(rng);
   const n = rng.weighted([[6, 3], [8, 2.5], [4, 1.5], [3, 1.5], [5, 1.2], [12, 0.6]]);
   const R = U * 2;
   const w = R * (n >= 8 ? rng.float(0.16, 0.26) : rng.float(0.22, 0.36));
@@ -492,6 +491,25 @@ function spoke(rng) {
     item = subtract(item, circle(0, 0, w * rng.float(0.32, 0.45)));
   }
   return { item, symmetry: `D${n}`, limits: { tips: end === 'taper' ? 0.4 : 1, minFill: 0.12 } };
+}
+
+// Flat bars through the center, mirrored left/right, with the lower ends
+// trimmed by a circle so the mark sits on a round base.
+function spokeClip(rng) {
+  const R = U * 2;
+  const w = R * rng.float(0.18, 0.28);
+  const tilts = [0];
+  for (let i = rng.int(1, 2); i > 0; i--) tilts.push(rng.float(30, 75));
+  const bars = [];
+  for (const t of new Set(tilts)) {
+    bars.push(place(rect(0, 0, w, R * 2.4), 0, 0, t));
+    if (t) bars.push(place(rect(0, 0, w, R * 2.4), 0, 0, -t));
+  }
+  if (rng.chance(0.4)) bars.push(rect(0, 0, R * 2.4, w));
+  const base = unite(circle(0, 0, R * rng.float(0.92, 1.02)), rect(0, -R * 1.5, R * 4, R * 3));
+  let item = intersect(unite(bars), base);
+  if (rng.chance(0.3)) item = subtract(item, circle(0, 0, w * 0.42));
+  return { item, symmetry: 'D1' };
 }
 
 // ------------------------------------------------------------------ badge
@@ -522,39 +540,149 @@ function badge(rng) {
 }
 
 // ----------------------------------------------------------------- stripe
-// A solid shape sliced into bands, or only its lower half (a sunset).
+// A solid shape sliced into bands, or striped on one side only (a sunset).
 
 function stripe(rng) {
   const R = U * 2;
-  const base = rng.weighted([['circle', 4], ['squircle', 3], ['diamond', 1.2], ['badge', 1]]);
-  const shape =
-    base === 'circle' ? circle(0, 0, R)
-    : base === 'squircle' ? quad(R, R, rng.float(0.75, 0.92))
-    : base === 'diamond' ? place(quad(R, R, rng.float(0.7, 0.85)), 0, 0, 45)
-    : roundedPolygon(starPoints(rng.pick([8, 12]), R, R * 0.86), R * 0.08);
-  const sunset = base === 'circle' && rng.chance(0.3);
-  const bands = sunset ? rng.int(3, 4) : rng.weighted([[3, 3], [4, 2.5], [5, 2]]);
-  const angle = sunset ? 0 : rng.weighted([[0, 4], [90, 1.2], [45, 1.5]]);
-  const gap = R * rng.float(0.09, 0.15);
-  const ease = rng.float(0, 0.6);
+  const base = rng.weighted([['circle', 3], ['squircle', 2.5], ['soft', 2], ['pill', 1.2], ['diamond', 1], ['badge', 1]]);
+  let shape;
+  let angles = [0, 90, 45];
+  if (base === 'circle') {
+    shape = circle(0, 0, R);
+    angles = [0, 90, 45, 30, 60, 0];
+  } else if (base === 'squircle') shape = quad(R, R, rng.float(0.72, 0.95));
+  else if (base === 'soft') {
+    shape = polar(R, 4, [[1, rng.float(0.06, 0.16) * rng.pick([1, -1])], [2, rng.float(-0.05, 0.05)]]);
+  } else if (base === 'pill') {
+    const h = R * rng.float(1.1, 1.5);
+    shape = rect(0, 0, 2 * R, h, h / 2);
+    if (rng.chance(0.5)) shape.rotate(90, ORIGIN);
+    angles = [0, 90];
+  } else if (base === 'diamond') shape = place(quad(R, R, rng.float(0.7, 0.88)), 0, 0, 45);
+  else shape = roundedPolygon(starPoints(8, R, R * rng.float(0.82, 0.9)), R * 0.08);
 
-  // cut positions eased toward a sine spacing so the end caps aren't slivers
+  const sunset = rng.chance(0.25);
+  const bands = sunset ? rng.int(2, 4) : rng.weighted([[2, 1], [3, 2], [4, 2.5], [5, 2], [6, 1.2]]);
+  const angle = rng.pick(angles);
+  const gap = R * rng.float(0.07, 0.17);
+  // < 0 squeezes the middle bands, > 0 widens them
+  const swell = rng.float(-0.5, 0.7);
+  const place01 = (t) => R * (swell * Math.sin((t * Math.PI) / 2) + (1 - swell) * t);
+
   const cuts = [];
-  if (sunset) {
-    for (let i = 0; i < bands; i++) {
-      const t = i / bands;
-      cuts.push(R * (ease * Math.sin((t * Math.PI) / 2) + (1 - ease) * t));
-    }
-  } else {
-    for (let i = 1; i < bands; i++) {
-      const t = -1 + (2 * i) / bands;
-      cuts.push(R * (ease * Math.sin((t * Math.PI) / 2) + (1 - ease) * t));
-    }
-  }
-  const bars = cuts.map((y) => place(rect(0, y, R * 3, gap), 0, 0, angle));
+  if (sunset) for (let i = 0; i < bands; i++) cuts.push(place01(i / bands));
+  else for (let i = 1; i < bands; i++) cuts.push(place01(-1 + (2 * i) / bands));
+  const bars = cuts.map((y) => place(rect(0, y, R * 4, gap), 0, 0, angle));
   const item = subtract(shape, ...bars);
-  const label = sunset ? 'D1' : 'D2';
-  return { item, symmetry: label, axis: angle === 45 ? 45 : 0 };
+  return { item, symmetry: sunset ? 'D1' : 'D2', axis: angle };
+}
+
+// ------------------------------------------------------------------- soft
+// Rounded, slightly irregular shapes that stay symmetric: lobed curves from
+// a few harmonics, or balls that melt into each other.
+
+function softWave(rng) {
+  const n = rng.weighted([[3, 1.2], [4, 2], [5, 2], [6, 1.8], [7, 0.6], [8, 1]]);
+  const R = U * 2;
+  const a1 = rng.float(0.08, 0.3) * rng.pick([1, -1]);
+  // higher harmonics only while the ripple count stays low, so rims don't wobble
+  const a2 = 2 * n <= 12 && rng.chance(0.65) ? rng.float(0.02, 0.1) * rng.pick([1, -1]) : 0;
+  const a3 = 3 * n <= 12 && rng.chance(0.3) ? rng.float(0.01, 0.04) : 0;
+  // a phase offset on the upper harmonics leans every lobe the same way
+  const lean = rng.chance(0.3) ? rng.float(0.35, 1.1) * rng.pick([1, -1]) : 0;
+  const harmonics = [[1, a1], [2, a2, lean], [3, a3, 2 * lean]];
+  const outer = polar(R, n, harmonics);
+
+  const inner = rng.weighted([['none', 2], ['hole', 2.2], ['echo', 2], ['dot', 1.2]]);
+  let item = outer;
+  if (inner !== 'none') {
+    const wall = R * rng.float(0.17, 0.3);
+    const template =
+      inner === 'echo'
+        ? place(polar(R, n, [[1, -a1 * rng.float(0.4, 1)], [2, a2, lean]]), 0, 0, rng.chance(0.5) ? 180 / n : 0)
+        : circle(0, 0, R);
+    const hole = fitInside(outer, template, wall, rng.float(0.6, 1));
+    if (!hole) return null;
+    item = subtract(outer, hole);
+    if (inner === 'dot') item = unite(item, circle(0, 0, reach(hole) * rng.float(0.38, 0.6)));
+  }
+  return { item, symmetry: `${lean ? 'C' : 'D'}${n}` };
+}
+
+// Traces balls [[x, y, r], ...] melted together. Each ball reaches twice its
+// radius and fades out smoothly, so only neighbours melt; at level 0.42 a
+// lone ball keeps its radius. Returns null unless it comes out as one piece.
+function melt(balls, level) {
+  const field = (x, y) => {
+    let f = 0;
+    for (const [bx, by, r] of balls) {
+      const q = ((x - bx) ** 2 + (y - by) ** 2) / (4 * r * r);
+      if (q < 1) f += (1 - q) ** 3;
+    }
+    return f;
+  };
+  const extent = Math.max(...balls.map(([x, y, r]) => Math.max(Math.abs(x), Math.abs(y)) + 2 * r)) * 1.1;
+  const item = isoContour(field, extent, 150, level);
+  if (!item || item.reorient(false, true).children.filter((c) => c.area > 0).length !== 1) return null;
+  return item;
+}
+
+function softMelt(rng) {
+  const n = rng.weighted([[2, 1], [3, 1.4], [4, 2], [5, 1.4], [6, 1.4], [8, 0.7]]);
+  const R = U * 1.5;
+  const ball = R * (n <= 3 ? rng.float(0.55, 0.85) : rng.float(0.4, 0.68));
+  const balls = ring(n, R, n % 2 ? 0 : rng.pick([0, 180 / n])).map(([x, y]) => [x, y, ball]);
+  const core = rng.weighted([['none', 2], ['ball', 2], ['small', 1]]);
+  if (core === 'ball') balls.push([0, 0, ball * rng.float(0.8, 1.15)]);
+  if (core === 'small') balls.push([0, 0, ball * rng.float(0.35, 0.55)]);
+  if (rng.chance(0.25)) {
+    const outerR = R * rng.float(1.55, 1.9);
+    const small = ball * rng.float(0.35, 0.55);
+    for (const [x, y] of ring(n, outerR, 180 / n)) balls.push([x, y, small]);
+  }
+  const item = melt(balls, 0.42 * rng.float(0.8, 1.2));
+  return item && { item, symmetry: `D${n}`, limits: { minFeature: 1.6 } };
+}
+
+// Mirrored left/right only, like a soft character; sometimes with two eyes.
+function softMirror(rng) {
+  const R = U * 1.6;
+  const balls = [];
+  const spine = rng.int(1, 2);
+  for (let i = 0; i < spine; i++) balls.push([0, R * rng.float(-0.6, 0.6), R * rng.float(0.55, 0.85)]);
+  for (let i = rng.int(2, 3); i > 0; i--) {
+    const ball = [R * rng.float(0.35, 0.95), R * rng.float(-0.9, 0.9), R * rng.float(0.3, 0.6)];
+    balls.push(ball, [-ball[0], ball[1], ball[2]]);
+  }
+  let item = melt(balls, 0.42 * rng.float(0.85, 1.15));
+  if (!item) return null;
+  if (rng.chance(0.4)) {
+    const { center, width, height } = item.bounds;
+    const ex = width * rng.float(0.12, 0.2);
+    const ey = center.y - height * rng.float(0, 0.15);
+    const eyes = [-1, 1].map((side) => ellipse(center.x + side * ex, ey, width * rng.float(0.035, 0.06), height * rng.float(0.08, 0.12)));
+    const cut = subtract(item, ...eyes);
+    if (cut && clearance(unite(eyes), item) > U * 0.3) item = cut;
+  }
+  return { item, symmetry: 'D1', limits: { minFeature: 1.6 } };
+}
+
+// Two unequal balls melted along a line: mirrored only across that line.
+function softDuo(rng) {
+  const r1 = U * rng.float(0.65, 0.9);
+  const r2 = r1 * rng.float(1.2, 1.7);
+  const gap = (r1 + r2) * rng.float(0.95, 1.25);
+  const balls = [[-gap * (r2 / (r1 + r2)), 0, r1], [gap * (r1 / (r1 + r2)), 0, r2]];
+  if (rng.chance(0.3)) balls.push([balls[1][0] + r2 * rng.float(1.1, 1.5), 0, r1 * rng.float(0.5, 0.75)]);
+  const item = melt(balls, 0.42 * rng.float(0.85, 1.15));
+  if (!item) return null;
+  const turn = rng.pick([0, 90, 45]);
+  item.rotate(turn, ORIGIN);
+  return { item, symmetry: 'D1', axis: turn + 90, limits: { minFeature: 1.6 } };
+}
+
+function soft(rng) {
+  return rng.weighted([[softWave, 5], [softMelt, 3], [softMirror, 2], [softDuo, 1.5]])(rng);
 }
 
 // ------------------------------------------------------------------ split
@@ -594,18 +722,232 @@ function split(rng) {
   return { item: unite(pieces), symmetry: base === 'hexagon' ? 'D2' : 'D4' };
 }
 
+// ----------------------------------------------------------------- stroke
+// Monoline strokes with round caps and filleted joins.
+
+function stroke(rng, opts = {}) {
+  const presets = [['gooey', 3], ['twin', 2.5], ['loops', 2]];
+  if (opts.loose) presets.push(['splat', 4]);
+  const preset = rng.weighted(presets);
+  let r = U * rng.float(0.17, 0.27);
+  const L = U * 2;
+  let f;
+  let symmetry;
+  let limits = { minFeature: 1.4 };
+
+  if (preset === 'gooey') {
+    const n = rng.weighted([[3, 1], [4, 1.2], [5, 1.5], [6, 2], [8, 1.5]]);
+    const short = n % 2 === 0 && rng.chance(0.35) ? rng.float(0.5, 0.75) : 1;
+    const arms = Array.from({ length: n }, (_, i) => {
+      const s = i % 2 ? short : 1;
+      return sd.move(sd.capsule(0, 0, L * s, 0, r * (s < 1 ? 0.85 : 1)), 0, 0, (360 * i) / n - 90);
+    });
+    f = sd.blend(r * rng.float(0.9, 2.2), sd.circle(r * rng.float(1.4, 2.6)), ...arms);
+    symmetry = short < 1 ? `D${n / 2}` : `D${n}`;
+  } else if (preset === 'twin') {
+    // a slanted stroke with a tail melted onto it, paired with its 180° turn
+    const a = (rng.float(52, 72) * Math.PI) / 180;
+    const ux = Math.cos(a);
+    const uy = -Math.sin(a);
+    const len = L * rng.float(1.1, 1.5);
+    r *= 0.7;
+    const sx = r * rng.float(1.6, 2.4) / Math.sin(a);
+    const [bx, by] = [-sx - (ux * len) / 2, -(uy * len) / 2];
+    const t = rng.float(0.2, 0.55);
+    const [qx, qy] = [bx + ux * len * t, by + uy * len * t];
+    const tail = L * rng.float(0.6, 1);
+    const piece = sd.blend(
+      r * rng.float(1.2, 2.6),
+      sd.capsule(bx, by, bx + ux * len, by + uy * len, r),
+      sd.capsule(qx, qy, qx - tail, qy, r),
+    );
+    const mirrored = rng.chance(0.25);
+    f = sd.union(piece, mirrored ? (x, y) => piece(-x, y) : sd.move(piece, 0, 0, 180));
+    symmetry = mirrored ? 'D1' : 'C2';
+  } else if (preset === 'loops') {
+    const n = rng.weighted([[2, 2], [3, 2], [4, 1], [5, 0.8]]);
+    const R = L * rng.float(0.42, 0.62);
+    const off = L * rng.float(0.25, 0.5);
+    const span = (rng.float(140, 220) * Math.PI) / 180;
+    const a0 = rng.float(0, Math.PI * 2);
+    f = sd.spin(sd.arc(off, 0, R, a0, a0 + span, r), n, r * rng.float(0, 1.2));
+    symmetry = `C${n}`;
+  } else {
+    // splat: arms of different lengths around a core; balanced, not symmetric
+    const m = rng.int(5, 9);
+    let angles;
+    for (let tries = 0; tries < 30; tries++) {
+      angles = Array.from({ length: m }, () => rng.float(0, 360)).sort((p, q) => p - q);
+      const gaps = angles.map((v, i) => (i ? v - angles[i - 1] : v + 360 - angles[m - 1]));
+      if (Math.min(...gaps) > 360 / m / 2.2) break;
+      angles = null;
+    }
+    if (!angles) return null;
+    const arms = angles.map((deg) => sd.move(sd.capsule(0, 0, L * rng.float(0.55, 1.05), 0, r * rng.float(0.75, 1.1)), 0, 0, deg));
+    f = sd.blend(r * rng.float(1, 2), sd.circle(r * rng.float(1.3, 2)), ...arms);
+    symmetry = 'C1';
+    limits = { minFeature: 1.4, balance: 0.07 };
+  }
+  const item = sd.trace(f);
+  return item && { item, symmetry, limits };
+}
+
+// ----------------------------------------------------------------- sector
+// A ring or polygon cut into radial pieces, optionally twisted, hooked, or
+// split open by a starburst.
+
+function sector(rng) {
+  const n = rng.weighted([[3, 1], [4, 1.4], [5, 2], [6, 2], [8, 1]]);
+  const R = U * 2;
+  const span = (2 * Math.PI) / n;
+  const inner = R * rng.float(0.18, 0.5);
+  const gap = R * rng.float(0.06, 0.13);
+  const soft = R * rng.float(0.02, 0.08);
+  const outline = rng.weighted([['ring', 3], ['polygon', 2]]);
+
+  let base;
+  if (outline === 'ring') base = sd.annulus(inner, R);
+  else {
+    const corner = rng.chance(0.5) ? span / 2 : 0;
+    const pts = Array.from({ length: n }, (_, i) => [Math.cos(i * span + corner) * R, Math.sin(i * span + corner) * R]);
+    base = sd.cut(sd.polygon(pts), sd.circle(inner), soft);
+  }
+  const wedge = sd.wedge(-span / 2, span / 2);
+  let piece = sd.clip(base, (x, y) => wedge(x, y) + gap / 2, soft);
+
+  const hook = n <= 6 && rng.chance(0.3);
+  if (hook) {
+    const mid = (inner + R) / 2;
+    const notch = ((R - inner) / 2) * rng.float(0.35, 0.55);
+    const at = span / 2 - gap / (2 * mid);
+    piece = sd.cut(piece, sd.circle(notch, Math.cos(at) * mid, Math.sin(at) * mid), soft);
+  }
+  const twist = n <= 6 && rng.chance(0.4) ? rng.float(6, 15) * rng.pick([1, -1]) : 0;
+  if (twist) {
+    const mid = (inner + R) / 2;
+    piece = sd.move(sd.move(piece, -mid, 0), mid, 0, twist);
+  }
+  let f = sd.spin(piece, n);
+  if (!hook && rng.chance(0.3)) {
+    const tips = [];
+    for (let i = 0; i < n; i++) {
+      tips.push([Math.cos((i + 0.5) * span) * R * 0.82, Math.sin((i + 0.5) * span) * R * 0.82]);
+      tips.push([Math.cos((i + 1) * span) * inner * 1.15, Math.sin((i + 1) * span) * inner * 1.15]);
+    }
+    f = sd.cut(f, sd.polygon(tips), soft * 0.5);
+  }
+  const item = sd.trace(sd.move(f, 0, 0, -90 + (outline === 'ring' ? 0 : 180 / n)));
+  return item && { item, symmetry: `${hook || twist ? 'C' : 'D'}${n}`, limits: { tips: 0.6 } };
+}
+
+// ------------------------------------------------------------------- arch
+// Overlapping ovals whose overlaps cancel out, split into two halves.
+
+function arch(rng) {
+  const k = rng.weighted([[3, 3], [2, 1.2], [4, 0.4]]);
+  const a = U * rng.float(0.5, 0.7);
+  const b = U * rng.float(1.1, 1.6);
+  const step = 2 * a * rng.float(0.6, 0.85);
+  const lift = rng.float(1, 1.25);
+  let f = null;
+  for (let i = 0; i < k; i++) {
+    const inside = i > 0 && i < k - 1;
+    const oval = sd.ellipse(a, inside ? b * lift : b, (i - (k - 1) / 2) * step, 0);
+    f = f ? sd.xor(f, oval) : oval;
+  }
+  const soft = U * rng.float(0.05, 0.12);
+  const split = rng.chance(0.7);
+  let symmetry = 'D2';
+  if (split) {
+    const gap = U * rng.float(0.16, 0.32);
+    const top = sd.clip(f, (x, y) => y + gap / 2, soft);
+    const bottom = sd.clip(f, (x, y) => gap / 2 - y, soft);
+    const shift = rng.chance(0.25) ? step / 2 : 0;
+    f = sd.union(top, sd.move(bottom, shift, 0));
+    if (shift) symmetry = 'C2';
+  }
+  const turn = rng.chance(0.3) ? 90 : 0;
+  const item = sd.trace(sd.move(f, 0, 0, turn));
+  return item && { item, symmetry, limits: { tips: 0.5 } };
+}
+
+// ------------------------------------------------------------------- dash
+// A ring of ellipses, laid along the ring, across it, or tilted.
+
+function dash(rng) {
+  const n = rng.weighted([[4, 1.5], [5, 1], [6, 3], [8, 2], [10, 1], [12, 0.8]]);
+  const R = U * 2;
+  const chord = (2 * Math.PI * R) / n;
+  const tilt = rng.float(30, 60) * rng.pick([1, -1]);
+  const turn = rng.weighted([[90, 3], [0, 1.2], [tilt, 1.5]]);
+  const len = turn === 0 ? R * rng.float(0.28, 0.42) : chord * rng.float(0.3, 0.44);
+  const thick = len * rng.float(0.32, 0.55);
+  const offset = n % 2 === 0 && rng.chance(0.5) ? 180 / n : 0;
+  const dots = ring(n, R, offset).map(([x, y]) => ellipse(x, y, len, thick, (Math.atan2(y, x) * 180) / Math.PI + turn));
+  if (rng.chance(0.25)) dots.push(circle(0, 0, R * rng.float(0.2, 0.32)));
+  const symmetry = turn === 0 || turn === 90 ? `D${n}` : `C${n}`;
+  return { item: compound(dots), symmetry, limits: { freePieces: 13 } };
+}
+
+// -------------------------------------------------------------------- fan
+// Tapered rays that shrink as they sweep around: balanced, not symmetric.
+
+function fan(rng) {
+  const m = rng.int(5, 8);
+  const L = U * 2.2;
+  const sweep = rng.float(200, 290);
+  const start = rng.float(0, 360);
+  const gamma = rng.float(0.75, 1.3);
+  const drop = rng.float(0.35, 0.65);
+  const wide = U * rng.float(0.55, 0.85);
+  const taper = rng.float(0.25, 0.6);
+  const soft = U * rng.float(0.06, 0.14);
+
+  const rays = Array.from({ length: m }, (_, i) => {
+    const t = i / (m - 1);
+    const s = 1 - drop * t;
+    return { angle: start + sweep * t ** gamma, len: L * s, outer: wide * s, inner: wide * s * taper };
+  });
+  // push the rays' feet out far enough that neighbours never touch
+  let foot = L * rng.float(0.12, 0.2);
+  for (let i = 1; i < m; i++) {
+    const apart = ((rays[i].angle - rays[i - 1].angle) * Math.PI) / 180;
+    foot = Math.max(foot, ((rays[i].inner + rays[i - 1].inner) / 2 + U * 0.12) / apart);
+  }
+  if (foot > L * 0.5) return null;
+
+  const cutAt = L * rng.float(0.42, 0.52);
+  const cutWidth = U * rng.float(0.14, 0.22);
+  const arcCut = rng.chance(0.35) ? sd.annulus(cutAt, cutAt + cutWidth) : null;
+  const shapes = rays.map(({ angle, len, outer, inner }, i) => {
+    const ray = sd.grow(sd.polygon([[foot, -inner / 2], [len, -outer / 2], [len, outer / 2], [foot, inner / 2]]), soft);
+    const reaches = len > cutAt + cutWidth + U * 0.5 && cutAt - foot > U * 0.5;
+    const cutRay = arcCut && i >= m / 2 && reaches ? sd.cut(ray, arcCut, soft) : ray;
+    return sd.move(cutRay, 0, 0, angle);
+  });
+  const item = sd.trace(sd.union(...shapes));
+  return item && { item, symmetry: 'C1', limits: { balance: 0.1, tips: 0.6 } };
+}
+
+// `loose` families only appear when asymmetric marks are allowed.
 export const FAMILIES = {
-  bloom: { build: bloom, weight: 8 },
-  lattice: { build: lattice, weight: 6 },
-  orbit: { build: orbitFamily, weight: 7 },
-  petal: { build: petal, weight: 10 },
-  spark: { build: spark, weight: 9 },
-  spoke: { build: spoke, weight: 9 },
-  badge: { build: badge, weight: 9 },
-  ring: { build: band, weight: 8 },
-  stripe: { build: stripe, weight: 8 },
-  split: { build: split, weight: 7 },
-  tiles: { build: tiles, weight: 8 },
-  pixel: { build: pixel, weight: 4 },
+  bloom: { build: bloom, weight: 7 },
+  lattice: { build: lattice, weight: 5 },
+  orbit: { build: orbitFamily, weight: 6 },
+  soft: { build: soft, weight: 10 },
+  stroke: { build: stroke, weight: 9 },
+  sector: { build: sector, weight: 9 },
+  petal: { build: petal, weight: 8 },
+  spoke: { build: spoke, weight: 8 },
+  badge: { build: badge, weight: 7 },
+  arch: { build: arch, weight: 6 },
+  dash: { build: dash, weight: 7 },
+  ring: { build: band, weight: 7 },
+  stripe: { build: stripe, weight: 5 },
+  split: { build: split, weight: 6 },
+  tiles: { build: tiles, weight: 7 },
+  spark: { build: spark, weight: 3 },
+  pixel: { build: pixel, weight: 3 },
   field: { build: field, weight: 2 },
+  fan: { build: fan, weight: 5, loose: true },
 };

@@ -5,8 +5,12 @@
 const N = 64;
 const CELL = 100 / N;
 
-function rasterize(shape) {
+function rasterize(shape, center = false) {
   const flat = shape.clone({ insert: false });
+  if (center) {
+    const { width, height } = flat.bounds;
+    flat.translate([(100 - width) / 2 - flat.bounds.x, (100 - height) / 2 - flat.bounds.y]);
+  }
   flat.flatten(0.25);
   const edges = [];
   for (const path of flat.children ?? [flat]) {
@@ -149,4 +153,60 @@ export function detailScore(shape, { tips = 1, freePieces = 5 } = {}) {
     0.06 * specks +
     0.08 * satellites
   );
+}
+
+// ------------------------------------------------------------ likeness
+
+// How far the ink's centre of mass sits from the middle of the mark (0–1).
+export function offCenter(shape) {
+  const mask = rasterize(shape, true);
+  let sx = 0;
+  let sy = 0;
+  let ink = 0;
+  for (let p = 0; p < N * N; p++) {
+    if (!mask[p]) continue;
+    sx += p % N;
+    sy += (p / N) | 0;
+    ink++;
+  }
+  if (!ink) return 1;
+  return Math.hypot(sx / ink - (N - 1) / 2, sy / ink - (N - 1) / 2) / N;
+}
+
+// A 32×32 silhouette of the (centered) mark, packed into base64.
+export function signature(shape) {
+  const mask = rasterize(shape, true);
+  const bits = new Uint8Array(128);
+  for (let j = 0; j < 32; j++) {
+    for (let i = 0; i < 32; i++) {
+      const p = 2 * j * N + 2 * i;
+      if (mask[p] + mask[p + 1] + mask[p + N] + mask[p + N + 1] >= 2) {
+        const k = j * 32 + i;
+        bits[k >> 3] |= 1 << (k & 7);
+      }
+    }
+  }
+  return btoa(String.fromCharCode(...bits));
+}
+
+const POP = Uint8Array.from({ length: 256 }, (_, i) => {
+  let c = 0;
+  for (let b = i; b; b >>= 1) c += b & 1;
+  return c;
+});
+
+// Overlap of two silhouettes (intersection over union, 0–1).
+export function likeness(a, b) {
+  if (!a || !b) return 0;
+  const x = atob(a);
+  const y = atob(b);
+  let both = 0;
+  let either = 0;
+  for (let i = 0; i < x.length; i++) {
+    const p = x.charCodeAt(i);
+    const q = y.charCodeAt(i);
+    both += POP[p & q];
+    either += POP[p | q];
+  }
+  return either ? both / either : 0;
 }

@@ -1,5 +1,5 @@
 // Renders a contact sheet of generated marks to an HTML file for eyeballing.
-// usage: [PREFIX=s] node scripts/sheet.js [family|all] [count] [out.html]
+// usage: [PREFIX=s] [LOOSE=1] node scripts/sheet.js [family|all] [count] [out.html]
 import { writeFileSync } from 'node:fs';
 import { generate } from '../src/gen/index.js';
 
@@ -9,7 +9,7 @@ const t0 = performance.now();
 let failed = 0;
 for (let i = 0; i < +count; i++) {
   const seed = `${process.env.PREFIX ?? 's'}${i}`;
-  const m = generate(seed, family);
+  const m = generate(seed, family, { loose: !!process.env.LOOSE });
   if (m) marks.push(m); else failed++;
 }
 const ms = (performance.now() - t0) / +count;

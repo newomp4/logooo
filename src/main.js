@@ -1,16 +1,18 @@
 import './style.css';
-import { generate, randomSeed, FAMILY_NAMES } from './gen/index.js';
+import { generate, randomSeed, likeness, signatureOf, FAMILY_NAMES, FAMILY_INFO } from './gen/index.js';
 import { INKS, copySvg, copyPng, saveSvg, savePng, faviconHref } from './export.js';
-import { meshFor } from './palette.js';
+import { tintFor } from './palette.js';
 
 const STORAGE_KEY = 'logooo:v1';
 const MAX_HISTORY = 240;
 const MAX_SAVED = 500;
+// a new mark is rerolled if it overlaps one of the last RECENT this much
+const RECENT = 40;
+const TOO_ALIKE = 0.8;
 
 const $ = (sel) => document.querySelector(sel);
 const tiles = [$('#canvas'), ...document.querySelectorAll('[data-tile]')];
-const mesh = $('.mesh');
-const colorTile = $('.icon--color');
+const tintTile = $('.icon--tint');
 const listEl = $('#list');
 
 // ------------------------------------------------------------------ state
@@ -31,28 +33,33 @@ const state = {
   currentId: null,
   mode: stored.mode === 'all' || FAMILY_NAMES.includes(stored.mode) ? stored.mode : 'all',
   ink: INKS[stored.ink] ? stored.ink : 'black',
+  strict: stored.strict !== false,
 };
+if (state.strict && FAMILY_INFO[state.mode]?.loose) state.mode = 'all';
 
 function persist() {
   try {
-    const { history, saved, mode, ink } = state;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, saved, mode, ink }));
+    const { history, saved, mode, ink, strict } = state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, saved, mode, ink, strict }));
   } catch {
     // storage full or blocked; marks just won't survive a reload
   }
 }
 
-const idOf = (entry) => (entry.mode === 'all' ? entry.seed : `${entry.mode}.${entry.seed}`);
+// ids double as URL hashes: family.seed, plus .x when asymmetric marks were allowed
+const idOf = (entry) => (entry.mode === 'all' ? entry.seed : `${entry.mode}.${entry.seed}${entry.loose ? '.x' : ''}`);
 const find = (id) => state.history.find((e) => idOf(e) === id) ?? state.saved.find((e) => idOf(e) === id);
 const current = () => (state.currentId ? find(state.currentId) : undefined);
 const visible = () => state[state.view];
 const isSaved = (entry) => state.saved.some((e) => idOf(e) === idOf(entry));
 const fileName = (entry) => `logooo-${entry.family}-${entry.seed}`;
 
-function build(seed, mode) {
-  const mark = generate(seed, mode);
-  return mark && { ...mark, mode };
+function build(seed, mode, loose = false) {
+  const mark = generate(seed, mode, { loose });
+  return mark && { ...mark, mode, loose };
 }
+
+const sigOf = (entry) => (entry.sig ??= signatureOf(entry.d));
 
 // ---------------------------------------------------------------- render
 
@@ -74,14 +81,9 @@ function renderStage(animate) {
     }
   });
 
-  const { base, mesh: gradient } = meshFor(entry.seed);
-  colorTile.style.setProperty('--base', base);
-  if (mesh.style.getPropertyValue('--mesh') !== gradient) {
-    mesh.style.setProperty('--mesh', gradient);
-    mesh.classList.remove('is-fresh');
-    void mesh.offsetWidth;
-    mesh.classList.add('is-fresh');
-  }
+  const tint = tintFor(entry.seed);
+  tintTile.style.setProperty('--tint-bg', tint.bg);
+  tintTile.style.setProperty('--tint-fg', tint.fg);
 
   $('#info').innerHTML = `<b>${entry.family}</b> · ${entry.symmetry} · ${entry.seed}`;
   const star = $('#save');
@@ -135,8 +137,13 @@ function renderChips(el, items, pressed, attr) {
 const titleCase = (s) => s[0].toUpperCase() + s.slice(1);
 
 function renderFamilies() {
-  const items = ['all', ...FAMILY_NAMES].map((name) => ({ value: name, label: titleCase(name) }));
+  const names = FAMILY_NAMES.filter((name) => !state.strict || !FAMILY_INFO[name].loose);
+  const items = ['all', ...names].map((name) => ({ value: name, label: titleCase(name) }));
   renderChips($('#families'), items, state.mode, 'data-mode');
+}
+
+function renderStrict() {
+  $('#strict').setAttribute('aria-checked', String(state.strict));
 }
 
 function renderInks() {
@@ -146,10 +153,36 @@ function renderInks() {
 
 // --------------------------------------------------------------- actions
 
+// Weighted pick that backs off styles you've just seen.
+function pickFamily() {
+  const recent = state.history.slice(0, 5).map((e) => e.family);
+  const pool = FAMILY_NAMES.filter((name) => !state.strict || !FAMILY_INFO[name].loose).map((name) => {
+    const at = recent.indexOf(name);
+    const damp = at === -1 ? 1 : at < 2 ? 0.15 : 0.5;
+    return [name, FAMILY_INFO[name].weight * damp];
+  });
+  let roll = Math.random() * pool.reduce((sum, [, w]) => sum + w, 0);
+  for (const [name, w] of pool) {
+    roll -= w;
+    if (roll < 0) return name;
+  }
+  return pool[pool.length - 1][0];
+}
+
 function create() {
-  for (let i = 0; i < 6; i++) {
-    const entry = build(randomSeed(), state.mode);
-    if (!entry) continue;
+  // keep the candidate least like anything recent; usually the first one is fine
+  const recent = state.history.slice(0, RECENT).map(sigOf);
+  let best = null;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const family = state.mode === 'all' ? pickFamily() : state.mode;
+    const candidate = build(randomSeed(), family, !state.strict);
+    if (!candidate) continue;
+    const closest = recent.reduce((max, sig) => Math.max(max, likeness(sig, candidate.sig)), 0);
+    if (!best || closest < best.closest) best = { candidate, closest };
+    if (closest < TOO_ALIKE) break;
+  }
+  if (best) {
+    const entry = { ...best.candidate, mode: best.candidate.family };
     state.history = [entry, ...state.history.filter((e) => idOf(e) !== idOf(entry))].slice(0, MAX_HISTORY);
     state.currentId = idOf(entry);
     state.view = 'history';
@@ -157,7 +190,6 @@ function create() {
     renderList();
     listEl.querySelector('li')?.classList.add('rise');
     renderStage(true);
-    return;
   }
 }
 
@@ -251,6 +283,15 @@ $('#families').addEventListener('click', (e) => {
   create();
 });
 
+$('#strict').addEventListener('click', () => {
+  state.strict = !state.strict;
+  if (state.strict && FAMILY_INFO[state.mode]?.loose) state.mode = 'all';
+  persist();
+  renderStrict();
+  renderFamilies();
+  create();
+});
+
 $('#inks').addEventListener('click', (e) => {
   const ink = e.target.closest('[data-ink]')?.dataset.ink;
   if (!ink) return;
@@ -321,9 +362,9 @@ function fromHash() {
     state.currentId = id;
     return true;
   }
-  const [mode, seed] = id.includes('.') ? id.split('.') : ['all', id];
+  const [mode, seed, flag] = id.includes('.') ? id.split('.') : ['all', id];
   if (!seed || (mode !== 'all' && !FAMILY_NAMES.includes(mode))) return false;
-  const entry = build(seed, mode);
+  const entry = build(seed, mode, flag === 'x');
   if (!entry) return false;
   state.history = [entry, ...state.history].slice(0, MAX_HISTORY);
   state.currentId = idOf(entry);
@@ -333,6 +374,7 @@ function fromHash() {
 
 renderFamilies();
 renderInks();
+renderStrict();
 if (fromHash() || state.history.length) {
   state.currentId ??= idOf(state.history[0]);
   renderList();
