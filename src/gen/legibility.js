@@ -388,13 +388,15 @@ export function appeal(mark) {
   let score = -mark.detail * 2 - Math.abs(mark.fill - 0.5) * 1.2;
   score -= Math.max(0, 0.8 - Math.min(mark.width, mark.height) / 100) * 1.5;
   if (mark.parts > 6) score -= 0.3;
+  else if (mark.parts > 4) score -= 0.1;
   // anchor points track how much is going on; past ~70 a mark turns into a cog
   if (mark.nodes > 70) score -= (mark.nodes - 70) / 100;
+  score -= (mark.spikes ?? 0) * 0.08;
+  if ((mark.dents ?? 0) > 4) score -= (mark.dents - 4) * 0.06;
   if (mark.solidity > 0.86) score -= (mark.solidity - 0.86) * 4;
   if (mark.solidity < 0.45) score -= (0.45 - mark.solidity) * 2;
-  if (/^D[2-9]/.test(mark.symmetry)) score += 0.12;
-  else if (/^C[2-9]/.test(mark.symmetry)) score += 0.1;
-  else if (mark.symmetry === 'D1') score += 0.05;
+  // any symmetry helps a little; favouring high orders made everything a ring
+  if (mark.symmetry && mark.symmetry !== 'C1') score += 0.05;
   return score;
 }
 
@@ -448,4 +450,112 @@ function forbiddenShapes() {
 export function forbidden(shape) {
   const sig = signature(at100(shape));
   return forbiddenShapes().some((f) => likeness(sig, f.sig) >= f.limit);
+}
+
+// --------------------------------------------------------------- fine bits
+
+// Share of ink in protrusions thinner than about 7% of the mark (knobs, hooks,
+// tails), via a morphological opening with a disk on a 96px silhouette.
+export function fineShare(shape, r = 3.5) {
+  const M = 96;
+  const k = 100 / M;
+  const flat = shape.clone({ insert: false });
+  const { width, height } = flat.bounds;
+  flat.translate([(100 - width) / 2 - flat.bounds.x, (100 - height) / 2 - flat.bounds.y]);
+  flat.flatten(0.25);
+  const edges = [];
+  for (const path of flat.children ?? [flat]) {
+    const pts = path.segments.map((seg) => seg.point);
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      if (a.y !== b.y) edges.push([a.x, a.y, b.x, b.y]);
+    }
+  }
+  const mask = new Uint8Array(M * M);
+  for (let j = 0; j < M; j++) {
+    const y = (j + 0.5) * k;
+    const xs = [];
+    for (const [x1, y1, x2, y2] of edges) if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) xs.push(x1 + ((y - y1) / (y2 - y1)) * (x2 - x1));
+    xs.sort((a, b) => a - b);
+    for (let t = 0; t + 1 < xs.length; t += 2) {
+      for (let i = Math.max(0, Math.ceil(xs[t] / k - 0.5)); i < M && (i + 0.5) * k < xs[t + 1]; i++) mask[j * M + i] = 1;
+    }
+  }
+  const disk = [];
+  const R = Math.ceil(r);
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (dx * dx + dy * dy <= r * r) disk.push(dx + dy * M);
+  const inside = (p, d) => {
+    const q = p + d;
+    const x = (p % M) + (((d % M) + M + M / 2) % M) - M / 2;
+    return q >= 0 && q < M * M && Math.abs((q % M) - (p % M)) <= R && x >= -R && mask[q];
+  };
+  const core = new Uint8Array(M * M);
+  for (let p = 0; p < M * M; p++) if (mask[p] && disk.every((d) => inside(p, d))) core[p] = 1;
+  let ink = 0;
+  let lost = 0;
+  for (let p = 0; p < M * M; p++) {
+    if (!mask[p]) continue;
+    ink++;
+    if (!disk.some((d) => {
+      const q = p + d;
+      return q >= 0 && q < M * M && Math.abs((q % M) - (p % M)) <= R && core[q];
+    })) lost++;
+  }
+  return ink ? lost / ink : 0;
+}
+
+// Sharp convex tips on the outer outline: places where it turns more than
+// ~110° within about 3 units (a rounded right-angle corner doesn't count).
+export function spikes(shape) {
+  let count = 0;
+  for (const loop of shape.children ?? [shape]) {
+    if (loop.area <= 0) continue;
+    const length = loop.length;
+    const n = Math.max(80, Math.round(length / 0.5));
+    const pts = Array.from({ length: n }, (_, i) => loop.getPointAt((length * i) / n));
+    // turning between consecutive samples, then summed over a short window, so
+    // a corner counts in full wherever it falls between samples
+    const turn = pts.map((p, i) => p.subtract(pts[(i - 1 + n) % n]).getDirectedAngle(pts[(i + 1) % n].subtract(p)));
+    const w = Math.max(2, Math.round(1.6 / (length / n)));
+    let sum = 0;
+    for (let j = -w; j <= w; j++) sum += turn[(j + n) % n];
+    let inside = false;
+    let wrapped = false;
+    for (let i = 0; i < n; i++) {
+      if (i) sum += turn[(i + w) % n] - turn[(i - w - 1 + n) % n];
+      const sharp = sum > 110;
+      if (sharp && !inside) {
+        count++;
+        if (i === 0) wrapped = true;
+      }
+      inside = sharp;
+    }
+    // a spike straddling the start was counted twice
+    if (inside && wrapped) count--;
+  }
+  return count;
+}
+
+// Concave dents along the outer outline: many of them make a flower or cog.
+export function dents(shape) {
+  let count = 0;
+  for (const loop of shape.children ?? [shape]) {
+    if (loop.area <= 0) continue;
+    const length = loop.length;
+    const n = Math.max(80, Math.round(length / 0.5));
+    const pts = Array.from({ length: n }, (_, i) => loop.getPointAt((length * i) / n));
+    const turn = pts.map((p, i) => p.subtract(pts[(i - 1 + n) % n]).getDirectedAngle(pts[(i + 1) % n].subtract(p)));
+    const w = Math.max(2, Math.round(2 / (length / n)));
+    let sum = 0;
+    for (let j = -w; j <= w; j++) sum += turn[(j + n) % n];
+    let inside = false;
+    for (let i = 0; i < n; i++) {
+      if (i) sum += turn[(i + w) % n] - turn[(i - w - 1 + n) % n];
+      const dent = sum < -25;
+      if (dent && !inside) count++;
+      inside = dent;
+    }
+  }
+  return count;
 }

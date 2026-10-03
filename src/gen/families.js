@@ -7,7 +7,7 @@ import {
 } from './geom.js';
 import { capsule, arcStroke, annulus, polygon, wedge, roundCorners } from './shapes.js';
 import { carve, pair, block, tetro, cloud } from './compose.js';
-import { form } from './procedural.js';
+import { form, formPlan } from './procedural.js';
 
 const U = 10; // base spacing; everything is rescaled at the end
 
@@ -881,7 +881,7 @@ function dash(rng) {
 
 // `loose` families only appear when asymmetric marks are allowed.
 export const FAMILIES = {
-  form: { build: form, weight: 120, pick: 4 },
+  form: { build: form, plan: formPlan, weight: 120, pick: 4 },
   carve: { build: carve, weight: 14 },
   pair: { build: pair, weight: 7 },
   block: { build: block, weight: 1 },

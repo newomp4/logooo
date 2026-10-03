@@ -8,13 +8,13 @@ Every mark is built the way you'd build it in Illustrator: exact circles, ellips
 
 ## Styles
 
-**Form** (the default, about 60% of marks) is procedural. Each mark is grown by a small random program, the way a designer sketches:
+**Form** (the default, about 60% of marks) is procedural. Each mark first gets a plan: an arrangement (spun, mirrored per piece, turned 180°, mirrored, or alone) and a geometry family (rounded blocks and leaning slabs, discs and ovals, arc bands, polygons, quarter discs, leaves). Then a small random program grows it:
 
-1. **Motif:** one primitive (disc, oval, rounded box, leaning slab, arc band, bent stroke, quarter disc, leaf or polygon), sometimes with another attached to its edge, a notch bitten out or a hole punched in.
-2. **Arrangement:** the motif spun around a centre, mirrored, turned 180°, or (asymmetric mode) left alone. Copies either clearly merge or clearly stand apart.
-3. **Finish:** sometimes trimmed into a round silhouette, opened in the middle, or slit.
+1. **Motif:** a primitive from that family, sometimes with a near-twin of the same family sunk into its edge, a corner chamfered, a straight slice through it, or a hole punched in. Mixing families (an oval with a box stub) makes keys and fish, so it doesn't happen.
+2. **Arrangement:** copies placed per the plan. Four or more copies always stand apart (melted together they make flowers and cogs). Pairs, mirrors and threes may merge, but never just graze each other.
+3. **Finish:** sometimes trimmed into a round silhouette, opened in the middle, or slit. Corners are rounded in proportion to the mark.
 
-Four candidates are grown per mark and the one that scores best wins (`appeal()` in `legibility.js`). The score rewards balanced ink, real negative space, a few strong pieces and symmetry, and it penalizes busyness, measured by anchor-point count.
+The plan is fixed per mark, so the arrangements and families that pass the checks most easily can't crowd the others out. Four candidates are grown and one of those scoring close to the best is picked at random (`appeal()` in `legibility.js`). The score rewards balanced ink, real negative space and a few strong pieces, and it penalizes anchor-point count, sharp spikes and lumpy dents.
 
 The other styles are curated recipes that fill in the rest:
 
@@ -40,6 +40,7 @@ Before a mark is shown it has to pass two checks, or it's rerolled:
 
 - **Geometry:** no slivers, no specks, balanced ink coverage, intact symmetry (a failed boolean op breaks it), and not too flat. It also rejects things that read as accidents: a nest of convex shapes around one centre (a disc, a plain ring, a target), a plain blob with a nick out of it, a grid of plain boxes, two or three plain pieces, bare dots, and leftover boolean slivers.
 - **Never:** a plain plus or X, or a hooked cross in either direction. Every mark's silhouette is compared against those templates and rejected if it's close.
+- **Even:** no knobs, hooks or tails, meaning little protrusions off a bigger body, measured as the ink a 7%-wide opening removes. No more than two sharp spikes on procedural marks.
 - **Legibility** (`src/gen/legibility.js`): the mark is rasterized at 64px, the way it would appear as an app icon, and scored on ink thinner than ~5% of its size, gaps narrower than that, specks, how many separate pieces and holes the eye would count, and small satellites floating away from the main body. Busy marks score high and get dropped.
 
 ### Fewer repeats

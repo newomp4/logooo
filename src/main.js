@@ -251,7 +251,7 @@ async function findSimilar() {
   renderList();
 
   const pool = [];
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 20; i++) {
     const candidate = build(randomSeed(), base.family, base.loose ?? !state.strict);
     if (candidate && !isHidden(candidate.sig)) {
       const near = likeness(baseSig, candidate.sig);

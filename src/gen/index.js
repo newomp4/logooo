@@ -23,16 +23,25 @@ export function generate(seed, family = 'all', { loose = false } = {}) {
   const name = FAMILIES[family] ? family : rng.weighted(pool);
   const want = FAMILIES[name].pick ?? 1;
   const found = [];
-  for (let attempt = 0; attempt < 60 && found.length < want; attempt++) {
-    try {
-      const built = FAMILIES[name].build(rng, { loose });
-      if (!built?.item) continue;
-      const mark = finalize(built.item, { ...built.limits, loose }, { label: built.symmetry, axis: built.axis });
-      if (mark) found.push({ seed, family: name, ...mark, symmetry: mark.symmetry ?? built.symmetry });
-    } catch {
-      // a degenerate boolean op; roll again
+  // families with a plan settle it once per mark (a fresh plan only if one fails)
+  for (let round = 0; round < 3 && !found.length; round++) {
+    const plan = FAMILIES[name].plan?.(rng, { loose });
+    for (let attempt = 0; attempt < 50 && found.length < want; attempt++) {
+      try {
+        const built = FAMILIES[name].build(rng, { loose, plan });
+        if (!built?.item) continue;
+        const mark = finalize(built.item, { ...built.limits, loose }, { label: built.symmetry, axis: built.axis });
+        if (mark) found.push({ seed, family: name, ...mark, symmetry: mark.symmetry ?? built.symmetry });
+      } catch {
+        // a degenerate boolean op; roll again
+      }
     }
   }
   if (!found.length) return null;
-  return found.reduce((best, m) => (appeal(m) > appeal(best) ? m : best));
+  // pick at random among the candidates close to the best, not always the
+  // top one: the top one tends to be the same kind of mark every time
+  const scored = found.map((m) => [m, appeal(m)]);
+  const top = Math.max(...scored.map(([, s]) => s));
+  const close = scored.filter(([, s]) => s >= top - 0.12).map(([m]) => m);
+  return close[Math.floor(rng.next() * close.length)];
 }
