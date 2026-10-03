@@ -1,7 +1,7 @@
 // Geometry kernel: primitives, symmetry groups, boolean ops and the final
 // clean-up pass that turns a paper.js item into a normalized SVG path.
 import paper from 'paper/dist/paper-core.js';
-import { detailScore, signature as silhouette, offCenter } from './legibility.js';
+import { detailScore, signature as silhouette, offCenter, detectSymmetry, tooPlain } from './legibility.js';
 
 paper.setup(new paper.Size(1, 1));
 paper.settings.insertItems = false;
@@ -173,7 +173,8 @@ function fitLoop(raw, tolerance) {
     const to = c + 1 < seams.length ? seams[c + 1] : seams[0] + m;
     if (to - from < 2) continue;
     const piece = new Path({ segments: Array.from({ length: to - from + 1 }, (_, i) => pts[(from + i) % m]) });
-    piece.simplify(tolerance);
+    // paper compares squared distances, so the tolerance goes in squared
+    piece.simplify(tolerance * tolerance);
     piece.segments.forEach((seg, i) => {
       if (i === 0 && segments.length) {
         const prev = segments.pop();
@@ -200,7 +201,7 @@ function fitLoop(raw, tolerance) {
 // Contours of field(x, y) = level over [-half, half]², traced with marching
 // squares and fitted with smooth curves. The field must fall below `level`
 // at the edges so every contour closes.
-export function isoContour(field, half, res = 140, level = 1, tolerance = 0.05) {
+export function isoContour(field, half, res = 140, level = 1, tolerance = 0.07) {
   const n = res + 1;
   const step = (2 * half) / res;
   const v = new Float64Array(n * n);
@@ -580,6 +581,8 @@ export function finalize(
     freePieces = 5,
     balance,
     symTolerance = 0.01,
+    minAspect = 0.28,
+    loose = false,
   } = {},
   symmetry,
 ) {
@@ -608,14 +611,21 @@ export function finalize(
     const area = Math.abs(child.area);
     if (area < minPart || (2 * area) / child.length < minFeature) return null;
   }
-  if (symmetry && !isSymmetric(shape, symmetry, symTolerance)) return null;
+  // 'auto' means the family doesn't promise a symmetry: measure it instead
+  let label = symmetry?.label;
+  if (label === 'auto') {
+    label = detectSymmetry(shape);
+    if (label === 'C1' && !loose) return null;
+    if (label === 'C1' && offCenter(shape) > (balance ?? 0.07)) return null;
+  } else if (symmetry && !isSymmetric(shape, symmetry, symTolerance)) return null;
+  if (tooPlain(shape)) return null;
 
   const { width, height } = shape.bounds;
   const area = Math.abs(shape.area);
   const fill = area / (width * height);
   if (fill < minFill || fill > maxFill) return null;
-  // very thin overall marks read poorly as icons
-  if (Math.min(width, height) < 28) return null;
+  // very flat overall marks read poorly as icons
+  if (Math.min(width, height) < minAspect * 100) return null;
   // a lone disc, square or diamond isn't a mark
   const nodes = shape.children.reduce((sum, c) => sum + c.segments.length, 0);
   if (nodes < minNodes) return null;
@@ -636,5 +646,6 @@ export function finalize(
     parts: shape.children.length,
     detail: +detail.toFixed(3),
     sig: silhouette(shape),
+    symmetry: label,
   };
 }

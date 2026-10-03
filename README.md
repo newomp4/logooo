@@ -13,27 +13,19 @@ Either way the output is a single vector path.
 
 ## Styles
 
+The main styles are compositional: each picks from a small vocabulary (containers, cuts, slabs, pieces) and combines a few at random, so they land on new marks rather than recreating a reference. Their symmetry is measured after the fact.
+
 | Style | What it makes |
 | --- | --- |
-| Soft | Rounded, slightly irregular shapes: lobed curves, melted balls, mirrored characters with eyes, lopsided dumbbells |
-| Stroke | Monoline strokes with round caps: bent slant pairs, gooey asterisks, chasing arcs, turbines, splats |
-| Sector | A ring or polygon cut into pieces: curved-cut apertures, hooked pinwheels, twisted kites around a starburst |
-| Petal | Almond leaves or teardrops fanned around a center |
-| Glyph | A blocky figure: a wide slab, splayed legs and a head (tilted in asymmetric mode) |
-| Spoke | Asterisks and suns from rounded or tapered bars, or flat bars trimmed by a circle |
-| Badge | Rounded stars and seals, plain or with an opening |
-| Arch | Overlapping ovals whose overlaps cancel, split into two halves |
-| Dash | A ring of ellipses, along the ring, across it or tilted |
-| Ring | Circle and squircle bands with shaped holes, dots, inner rings and slots |
-| Stripe | Circles, squircles, pills and soft shapes sliced into bands, or striped on one side |
-| Split | Shapes cut through the middle with the halves slid apart, or quartered |
-| Tiles | Bauhaus-style grids of squares, quarter discs, halves, leaves and triangles |
-| Bloom | Scalloped frames of overlapping circles with a shaped opening |
-| Lattice | Circle grids where overlaps cancel (XOR) or get punched through |
-| Orbit | Circles around a center: crescents, bitten moons, chains, rosettes, swirls |
-| Spark | Concave four-point stars, mostly cut out of a solid |
-| Pixel | Mirror-symmetric bitmaps as sharp blocks, soft blocks or dots |
-| Field | Halftone dot fields with radial or diagonal falloff |
+| Carve | A circle, squircle, polygon, pill or soft blob with negative space cut in: a slit that opens into a diamond, star or lens; a bent channel; an S cut; an inner opening of a different shape |
+| Pair | A slab (leaning, rounded, maybe hooked or with a block on it) and its 180° turn, interlocking into an S or Z |
+| Tetro | A rounded pixel piece mirrored into four quadrants around a gap |
+| Cloud | Lumps melted onto a body, filled or outlined, sometimes with eyes |
+| Block | Slabs stacked on a coarse grid with fillets and an arch cut |
+| Soft | Lobed curves, melted balls, mirrored characters, lopsided dumbbells |
+| Stroke | Monoline strokes with round caps: bent pairs, gooey asterisks, chasing arcs, turbines, splats |
+| Dash, Arch, Petal, Spoke, Sector, Split | Rings of ellipses, split overlapping ovals, leaves, asterisks, cut rings and polygons, slid halves |
+| Badge, Ring, Bloom, Orbit, Stripe, Glyph, Lattice, Tiles, Spark, Pixel, Field | Older styles, kept as occasional accents |
 | Fan | Tapered rays that shrink as they sweep around (asymmetric mode only) |
 
 ### Symmetric only
@@ -44,7 +36,7 @@ On by default: every mark has mirror and/or rotational symmetry. Switch it off t
 
 Before a mark is shown it has to pass two checks, or it's rerolled:
 
-- **Geometry:** no slivers, no specks, balanced ink coverage, intact symmetry (a failed boolean op breaks it), and nothing as plain as a lone disc or square.
+- **Geometry:** no slivers, no specks, balanced ink coverage, intact symmetry (a failed boolean op breaks it), not too flat, and not too plain: a nest of convex shapes around one centre (a disc, a plain ring, a target) is rejected.
 - **Legibility** (`src/gen/legibility.js`): the mark is rasterized at 64px, the way it would appear as an app icon, and scored on ink thinner than ~5% of its size, gaps narrower than that, specks, how many separate pieces and holes the eye would count, and small satellites floating away from the main body. Busy marks score high and get dropped.
 
 ### Fewer repeats
@@ -84,8 +76,9 @@ src/
     rng.js        seeded PRNG
     geom.js       primitives, symmetry groups, booleans, contour tracing, clean-up and checks
     sdf.js        signed-distance shapes and operations
-    legibility.js icon-size raster check, balance check, silhouette fingerprints
-    families.js   the styles
+    legibility.js icon-size raster check, symmetry detection, balance, plainness, fingerprints
+    compose.js    compositional styles (carve, pair, block, tetro, cloud)
+    families.js   the other styles and the weights
     index.js      generate(seed, family)
   export.js       SVG / PNG / clipboard
   palette.js      flat colour pairs for the colour icon

@@ -24,8 +24,8 @@ export function generate(seed, family = 'all', { loose = false } = {}) {
     try {
       const built = FAMILIES[name].build(rng, { loose });
       if (!built?.item) continue;
-      const mark = finalize(built.item, built.limits, { label: built.symmetry, axis: built.axis });
-      if (mark) return { seed, family: name, symmetry: built.symmetry, ...mark };
+      const mark = finalize(built.item, { ...built.limits, loose }, { label: built.symmetry, axis: built.axis });
+      if (mark) return { seed, family: name, ...mark, symmetry: mark.symmetry ?? built.symmetry };
     } catch {
       // a degenerate boolean op; roll again
     }

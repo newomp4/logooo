@@ -6,6 +6,7 @@ import {
   unite, xor, subtract, intersect, clearance, reach, fitInside, gridOutline, compound,
 } from './geom.js';
 import * as sd from './sdf.js';
+import { carve, pair, block, tetro, cloud } from './compose.js';
 
 const U = 10; // base spacing; everything is rescaled at the end
 
@@ -670,7 +671,7 @@ function softMirror(rng) {
   }
   let item = melt(balls, 0.42 * rng.float(0.85, 1.1));
   if (!item) return null;
-  if (rng.chance(0.55)) {
+  if (rng.chance(0.3)) {
     const { center, width, height } = item.bounds;
     const ex = width * rng.float(0.12, 0.18);
     const ey = center.y - height * rng.float(-0.02, 0.1);
@@ -828,7 +829,7 @@ function stroke(rng, opts = {}) {
 // kites around a starburst, hooked pinwheels.
 
 function sector(rng) {
-  const style = rng.weighted([['aperture', 4], ['kites', 3], ['hooks', 2], ['wheel', 1]]);
+  const style = rng.weighted([['kites', 3], ['hooks', 2], ['aperture', 1], ['wheel', 0.6]]);
   const n = style === 'kites' ? rng.weighted([[5, 3], [6, 2], [3, 1], [4, 0.4]]) : rng.weighted([[3, 1], [4, 1.4], [5, 2], [6, 2], [7, 0.8]]);
   const R = U * 2;
   const span = (2 * Math.PI) / n;
@@ -1011,24 +1012,29 @@ function glyph(rng, opts = {}) {
 
 // `loose` families only appear when asymmetric marks are allowed.
 export const FAMILIES = {
-  soft: { build: soft, weight: 12 },
-  stroke: { build: stroke, weight: 11 },
-  sector: { build: sector, weight: 12 },
-  arch: { build: arch, weight: 8 },
-  dash: { build: dash, weight: 9 },
-  petal: { build: petal, weight: 7 },
-  spoke: { build: spoke, weight: 7 },
-  glyph: { build: glyph, weight: 5 },
-  ring: { build: band, weight: 4 },
-  bloom: { build: bloom, weight: 4 },
-  orbit: { build: orbitFamily, weight: 3 },
-  badge: { build: badge, weight: 3 },
-  stripe: { build: stripe, weight: 3 },
+  carve: { build: carve, weight: 14 },
+  pair: { build: pair, weight: 10 },
+  block: { build: block, weight: 2 },
+  tetro: { build: tetro, weight: 5 },
+  cloud: { build: cloud, weight: 4 },
+  soft: { build: soft, weight: 7 },
+  stroke: { build: stroke, weight: 6 },
+  dash: { build: dash, weight: 5 },
+  arch: { build: arch, weight: 4 },
+  petal: { build: petal, weight: 4 },
+  spoke: { build: spoke, weight: 4 },
+  sector: { build: sector, weight: 3 },
   split: { build: split, weight: 3 },
-  lattice: { build: lattice, weight: 2 },
-  tiles: { build: tiles, weight: 2 },
-  spark: { build: spark, weight: 2 },
-  pixel: { build: pixel, weight: 2 },
-  field: { build: field, weight: 1 },
-  fan: { build: fan, weight: 6, loose: true },
+  badge: { build: badge, weight: 2 },
+  ring: { build: band, weight: 2 },
+  bloom: { build: bloom, weight: 2 },
+  orbit: { build: orbitFamily, weight: 1.5 },
+  stripe: { build: stripe, weight: 1.5 },
+  glyph: { build: glyph, weight: 1 },
+  lattice: { build: lattice, weight: 1 },
+  tiles: { build: tiles, weight: 1 },
+  spark: { build: spark, weight: 1 },
+  pixel: { build: pixel, weight: 1 },
+  field: { build: field, weight: 0.5 },
+  fan: { build: fan, weight: 2, loose: true },
 };

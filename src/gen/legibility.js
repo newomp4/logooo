@@ -210,3 +210,116 @@ export function likeness(a, b) {
   }
   return either ? both / either : 0;
 }
+
+// --------------------------------------------------------------- symmetry
+
+const ROT = [8, 6, 5, 4, 3, 2];
+
+// Finds the symmetry a mark actually has, on a 96px silhouette spun about
+// its centre of mass. Returns labels like 'D4', 'C2', 'D1' or 'C1' (none).
+export function detectSymmetry(shape) {
+  const M = 96;
+  const flat = shape.clone({ insert: false });
+  const { width, height } = flat.bounds;
+  flat.translate([(100 - width) / 2 - flat.bounds.x, (100 - height) / 2 - flat.bounds.y]);
+  flat.flatten(0.25);
+  const k = 100 / M;
+  const mask = new Uint8Array(M * M);
+  const edges = [];
+  for (const path of flat.children ?? [flat]) {
+    const pts = path.segments.map((seg) => seg.point);
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      if (a.y !== b.y) edges.push([a.x, a.y, b.x, b.y]);
+    }
+  }
+  let sx = 0;
+  let sy = 0;
+  let ink = 0;
+  for (let j = 0; j < M; j++) {
+    const y = (j + 0.5) * k;
+    const xs = [];
+    for (const [x1, y1, x2, y2] of edges) if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) xs.push(x1 + ((y - y1) / (y2 - y1)) * (x2 - x1));
+    xs.sort((a, b) => a - b);
+    for (let t = 0; t + 1 < xs.length; t += 2) {
+      for (let i = Math.max(0, Math.ceil(xs[t] / k - 0.5)); i < M && (i + 0.5) * k < xs[t + 1]; i++) {
+        mask[j * M + i] = 1;
+        sx += i;
+        sy += j;
+        ink++;
+      }
+    }
+  }
+  if (!ink) return 'C1';
+  const cx = sx / ink;
+  const cy = sy / ink;
+
+  // share of ink that lands off the ink after the transform
+  const miss = (fn) => {
+    let bad = 0;
+    for (let p = 0; p < M * M; p++) {
+      if (!mask[p]) continue;
+      const [x, y] = fn(p % M - cx, ((p / M) | 0) - cy);
+      const i = Math.round(x + cx);
+      const j = Math.round(y + cy);
+      if (i < 0 || j < 0 || i >= M || j >= M || !mask[j * M + i]) bad++;
+    }
+    return bad / ink;
+  };
+  const rotate = (deg) => {
+    const c = Math.cos((deg * Math.PI) / 180);
+    const s2 = Math.sin((deg * Math.PI) / 180);
+    return (x, y) => [x * c - y * s2, x * s2 + y * c];
+  };
+  const mirror = (deg) => {
+    const c = Math.cos((2 * deg * Math.PI) / 180);
+    const s2 = Math.sin((2 * deg * Math.PI) / 180);
+    return (x, y) => [x * c + y * s2, x * s2 - y * c];
+  };
+  const OK = 0.04;
+  const order = ROT.find((n) => miss(rotate(360 / n)) < OK) ?? 1;
+  const axes = new Set([0, 90]);
+  for (const n of ROT) for (let i = 0; i < 2 * n; i++) axes.add(+((90 * i) / n).toFixed(3) % 180);
+  const mirrored = [...axes].some((a) => miss(mirror(a)) < OK);
+  return `${mirrored ? 'D' : 'C'}${order}`;
+}
+
+// A nest of plain convex shapes around one centre (a disc, a ring, a target)
+// is too simple to be a mark.
+export function tooPlain(shape) {
+  const loops = shape.children ?? [shape];
+  const center = shape.bounds.center;
+  const size = Math.max(shape.bounds.width, shape.bounds.height);
+  return loops.every((loop) => {
+    const flat = loop.clone({ insert: false });
+    flat.flatten(0.5);
+    const pts = flat.segments.map((seg) => [seg.point.x, seg.point.y]);
+    const hull = convexHull(pts);
+    let hullArea = 0;
+    for (let i = 0; i < hull.length; i++) {
+      const [x1, y1] = hull[i];
+      const [x2, y2] = hull[(i + 1) % hull.length];
+      hullArea += x1 * y2 - x2 * y1;
+    }
+    const solidity = Math.abs(loop.area) / (Math.abs(hullArea) / 2 || 1);
+    const off = loop.bounds.center.getDistance(center) / size;
+    return solidity > 0.97 && off < 0.02;
+  });
+}
+
+function convexHull(points) {
+  const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (const p of pts.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}

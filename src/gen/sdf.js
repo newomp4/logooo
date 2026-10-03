@@ -123,6 +123,45 @@ export function polygon(pts) {
   };
 }
 
+// Box with half-sizes hw, hh and corner radius r.
+export function roundBox(hw, hh, r = 0, cx = 0, cy = 0) {
+  return (x, y) => {
+    const qx = Math.abs(x - cx) - hw + r;
+    const qy = Math.abs(y - cy) - hh + r;
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+  };
+}
+
+// Distance field of any paper.js path (holes included, even-odd).
+export function shape(item) {
+  const flat = item.clone({ insert: false });
+  flat.flatten(0.15);
+  const loops = (flat.children ?? [flat]).map((p) => p.segments.map((s) => [s.point.x, s.point.y]));
+  const edges = [];
+  for (const pts of loops) {
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i, i++) edges.push([pts[i][0], pts[i][1], pts[j][0], pts[j][1]]);
+  }
+  const { x: bx, y: by, width: bw, height: bh } = flat.bounds;
+  return (x, y) => {
+    // quick reject far outside the bounds
+    const ox = Math.max(bx - x, 0, x - (bx + bw));
+    const oy = Math.max(by - y, 0, y - (by + bh));
+    if (ox > 6 || oy > 6) return Math.hypot(ox, oy);
+    let d = Infinity;
+    let inside = false;
+    for (const [vix, viy, vjx, vjy] of edges) {
+      const ex = vjx - vix;
+      const ey = vjy - viy;
+      const wx = x - vix;
+      const wy = y - viy;
+      const h = clamp((wx * ex + wy * ey) / (ex * ex + ey * ey || 1e-12), 0, 1);
+      d = Math.min(d, (wx - ex * h) ** 2 + (wy - ey * h) ** 2);
+      if ((viy > y) !== (vjy > y) && x < vix + ((y - viy) / (vjy - viy)) * (vjx - vix)) inside = !inside;
+    }
+    return (inside ? -1 : 1) * Math.sqrt(d);
+  };
+}
+
 // Annulus between radii inner and outer.
 export const annulus = (inner, outer) => (x, y) => Math.abs(Math.hypot(x, y) - (inner + outer) / 2) - (outer - inner) / 2;
 
